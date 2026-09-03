@@ -21,20 +21,20 @@ from app.analysis.explanation_service import (
     validate_explanation,
 )
 from app.analysis.risk_engine import RiskAssessment
-from app.schemas.common import AlertRecipient, RiskLevel
+from app.schemas.common import NotificationRecipient, RiskLevel
 
 
 def _make_assessment(
     level: RiskLevel = RiskLevel.LOW,
     score: int = 15,
     reason: str = "Test reason.",
-    recipient: AlertRecipient = AlertRecipient.NONE,
+    recipient: NotificationRecipient = NotificationRecipient.NONE,
 ) -> RiskAssessment:
     return RiskAssessment(
         risk_score=score,
         risk_level=level,
         reason=reason,
-        alert_recipient=recipient,
+        notification_recipient=recipient,
     )
 
 
@@ -98,7 +98,7 @@ class MockValidProvider:
         risk_level: RiskLevel,
         risk_score: float,
         reason: str,
-        alert_recipient: AlertRecipient,
+        notification_recipient: NotificationRecipient,
         follow_up_action: Optional[str] = None,
     ) -> str:
         return self.response_text
@@ -208,8 +208,8 @@ def test_forbidden_clinical_phrases_are_rejected_and_fall_back(forbidden_phrase)
 
 
 def test_explanation_service_does_not_mutate_assessment_or_action():
-    original_assessment = _make_assessment(RiskLevel.MEDIUM, 40, "Original reason", AlertRecipient.CARE_TEAM)
-    assessment = _make_assessment(RiskLevel.MEDIUM, 40, "Original reason", AlertRecipient.CARE_TEAM)
+    original_assessment = _make_assessment(RiskLevel.MEDIUM, 40, "Original reason", NotificationRecipient.CARETAKER)
+    assessment = _make_assessment(RiskLevel.MEDIUM, 40, "Original reason", NotificationRecipient.CARETAKER)
     action = "Care-team review."
 
     explanation = generate_explanation(assessment, action)
@@ -220,12 +220,12 @@ def test_explanation_service_does_not_mutate_assessment_or_action():
     assert assessment.risk_score == original_assessment.risk_score
     assert assessment.risk_level == original_assessment.risk_level
     assert assessment.reason == original_assessment.reason
-    assert assessment.alert_recipient == original_assessment.alert_recipient
+    assert assessment.notification_recipient == original_assessment.notification_recipient
     assert action == "Care-team review."
 
 
 def test_repeated_calls_to_generate_explanation_are_stable():
-    assessment = _make_assessment(RiskLevel.HIGH, 75, "Severe symptoms", AlertRecipient.PHYSICIAN)
+    assessment = _make_assessment(RiskLevel.HIGH, 75, "Severe symptoms", NotificationRecipient.DOCTOR)
     action = "Prompt physician review."
     results = [generate_explanation(assessment, action) for _ in range(10)]
     assert len(set(results)) == 1

@@ -1,4 +1,5 @@
-"""Validation tests for the AI Engine request contract."""
+"""Validation tests for the AI Engine request contract (Phase 6: matches
+`backend/apps/checkins/ai_client.py` exactly)."""
 
 import pytest
 from pydantic import ValidationError
@@ -9,8 +10,9 @@ from tests.factories import valid_request_payload
 
 def test_valid_request_is_accepted():
     request = AIAnalysisRequest.model_validate(valid_request_payload())
-    assert request.patient_id == "patient-001"
-    assert request.check_in.severity == "moderate"
+    assert request.checkin_id == 1
+    assert request.patient_id == 1
+    assert request.pain_level == 4
 
 
 def test_missing_required_field_is_rejected():
@@ -20,37 +22,16 @@ def test_missing_required_field_is_rejected():
         AIAnalysisRequest.model_validate(payload)
 
 
-def test_invalid_data_type_is_rejected():
+def test_checkin_id_as_non_int_is_rejected():
     payload = valid_request_payload()
-    payload["timestamp"] = "not-a-timestamp"
+    payload["checkin_id"] = "1"
     with pytest.raises(ValidationError):
         AIAnalysisRequest.model_validate(payload)
 
 
-def test_invalid_severity_enum_is_rejected():
+def test_checkin_id_as_bool_is_rejected():
     payload = valid_request_payload()
-    payload["check_in"]["severity"] = "catastrophic"
-    with pytest.raises(ValidationError):
-        AIAnalysisRequest.model_validate(payload)
-
-
-def test_non_positive_duration_value_is_rejected():
-    payload = valid_request_payload()
-    payload["check_in"]["duration"]["value"] = 0
-    with pytest.raises(ValidationError):
-        AIAnalysisRequest.model_validate(payload)
-
-
-def test_empty_symptoms_list_is_rejected():
-    payload = valid_request_payload()
-    payload["check_in"]["symptoms"] = []
-    with pytest.raises(ValidationError):
-        AIAnalysisRequest.model_validate(payload)
-
-
-def test_nested_medication_adherence_status_is_validated():
-    payload = valid_request_payload()
-    payload["medical_context"]["medication_adherence"][0]["adherence_status"] = "invalid_status"
+    payload["checkin_id"] = True
     with pytest.raises(ValidationError):
         AIAnalysisRequest.model_validate(payload)
 
@@ -62,79 +43,121 @@ def test_unexpected_field_is_rejected():
         AIAnalysisRequest.model_validate(payload)
 
 
-def test_request_without_optional_context_uses_defaults():
+# --- pain_level ----------------------------------------------------------
+
+
+def test_pain_level_null_is_accepted_when_symptoms_present():
     payload = valid_request_payload()
-    del payload["medical_context"]
-    del payload["historical_context"]
+    payload["pain_level"] = None
     request = AIAnalysisRequest.model_validate(payload)
-    assert request.medical_context.medical_history == []
-    assert request.historical_context.previous_checkins == []
+    assert request.pain_level is None
 
 
-# --- Non-empty string validation (correction pass) ---------------------------
-
-
-def test_empty_patient_id_is_rejected():
+def test_pain_level_omitted_defaults_to_null():
     payload = valid_request_payload()
-    payload["patient_id"] = ""
+    del payload["pain_level"]
+    request = AIAnalysisRequest.model_validate(payload)
+    assert request.pain_level is None
+
+
+@pytest.mark.parametrize("value", [-1, 11])
+def test_pain_level_out_of_assumed_0_to_10_range_is_rejected(value):
+    payload = valid_request_payload()
+    payload["pain_level"] = value
     with pytest.raises(ValidationError):
         AIAnalysisRequest.model_validate(payload)
 
 
-def test_empty_request_id_is_rejected():
+def test_pain_level_as_numeric_string_is_rejected():
     payload = valid_request_payload()
-    payload["request_id"] = ""
+    payload["pain_level"] = "4"
     with pytest.raises(ValidationError):
         AIAnalysisRequest.model_validate(payload)
+
+
+def test_pain_level_as_bool_is_rejected():
+    payload = valid_request_payload()
+    payload["pain_level"] = True
+    with pytest.raises(ValidationError):
+        AIAnalysisRequest.model_validate(payload)
+
+
+# --- symptoms --------------------------------------------------------------
+
+
+def test_symptoms_omitted_defaults_to_empty_list():
+    payload = valid_request_payload()
+    del payload["symptoms"]
+    request = AIAnalysisRequest.model_validate(payload)
+    assert request.symptoms == []
 
 
 def test_empty_symptom_string_is_rejected():
     payload = valid_request_payload()
-    payload["check_in"]["symptoms"] = ["headache", ""]
+    payload["symptoms"] = ["headache", ""]
     with pytest.raises(ValidationError):
         AIAnalysisRequest.model_validate(payload)
 
 
-def test_empty_medication_name_is_rejected():
+# --- mood / vitals / notes: accepted, loosely typed -------------------------
+
+
+def test_mood_vitals_notes_are_optional_and_accepted():
     payload = valid_request_payload()
-    payload["medical_context"]["medication_adherence"][0]["medication_name"] = ""
-    with pytest.raises(ValidationError):
-        AIAnalysisRequest.model_validate(payload)
+    payload["mood"] = None
+    payload["vitals"] = {"heart_rate": 100, "note": "irregular"}
+    payload["notes"] = None
+    request = AIAnalysisRequest.model_validate(payload)
+    assert request.mood is None
+    assert request.vitals == {"heart_rate": 100, "note": "irregular"}
+    assert request.notes is None
 
 
-def test_empty_medical_history_entry_is_rejected():
+def test_vitals_omitted_defaults_to_empty_dict():
     payload = valid_request_payload()
-    payload["medical_context"]["medical_history"] = [""]
-    with pytest.raises(ValidationError):
-        AIAnalysisRequest.model_validate(payload)
+    del payload["vitals"]
+    request = AIAnalysisRequest.model_validate(payload)
+    assert request.vitals == {}
 
 
-# --- Strict primitive types: reject coercion, not just wrong values ---------
-
-
-def test_duration_value_as_numeric_string_is_rejected():
+def test_empty_mood_string_is_accepted_as_unspecified():
+    # Django's `mood = models.CharField(max_length=50, blank=True)` sends an
+    # unset mood as "" (not null) — this must not be rejected.
     payload = valid_request_payload()
-    payload["check_in"]["duration"]["value"] = "2"
-    with pytest.raises(ValidationError):
-        AIAnalysisRequest.model_validate(payload)
+    payload["mood"] = ""
+    request = AIAnalysisRequest.model_validate(payload)
+    assert request.mood == ""
 
 
-def test_duration_value_as_bool_is_rejected():
+def test_normal_mood_value_is_accepted():
     payload = valid_request_payload()
-    payload["check_in"]["duration"]["value"] = True
-    with pytest.raises(ValidationError):
-        AIAnalysisRequest.model_validate(payload)
+    payload["mood"] = "distressed"
+    request = AIAnalysisRequest.model_validate(payload)
+    assert request.mood == "distressed"
 
 
-def test_duration_value_as_float_is_rejected():
+# --- Insufficient-data safeguard: never fabricate a score --------------------
+
+
+def test_empty_symptoms_and_null_pain_level_is_rejected():
     payload = valid_request_payload()
-    payload["check_in"]["duration"]["value"] = 2.0
+    payload["symptoms"] = []
+    payload["pain_level"] = None
     with pytest.raises(ValidationError):
         AIAnalysisRequest.model_validate(payload)
 
 
-def test_patient_id_as_non_string_is_rejected():
+def test_symptoms_alone_without_pain_level_is_sufficient():
     payload = valid_request_payload()
-    payload["patient_id"] = 12345
-    with pytest.raises(ValidationError):
-        AIAnalysisRequest.model_validate(payload)
+    payload["pain_level"] = None
+    request = AIAnalysisRequest.model_validate(payload)
+    assert request.pain_level is None
+    assert request.symptoms
+
+
+def test_pain_level_alone_without_symptoms_is_sufficient():
+    payload = valid_request_payload()
+    payload["symptoms"] = []
+    request = AIAnalysisRequest.model_validate(payload)
+    assert request.symptoms == []
+    assert request.pain_level is not None

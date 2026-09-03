@@ -1,128 +1,102 @@
-"""Phase 1 deterministic risk-scoring baseline.
+"""Phase 6 deterministic risk-scoring baseline, rebuilt against the agreed
+backend wire contract (`backend/apps/checkins/ai_client.py`,
+`feature/backend` branch).
 
 This module is a transparent, rule-based engineering baseline used to
 prioritize patient check-ins for human follow-up. It is explicitly NOT a
 clinical diagnostic system: it does not identify, predict, or imply any
 specific medical condition, and its thresholds are hand-picked engineering
-defaults for this hackathon MVP, not medically validated values. Nothing it
-produces should be read as "this patient has/will have condition X" or as a
-guarantee that a situation is or is not an emergency.
+defaults for this hackathon MVP, not medically validated values.
 
 The engine exists behind a narrow seam (`assess()` returning a
 `RiskAssessment`) so that a future machine-learning model can replace this
 rule-based implementation later without changing `app/api/routes.py` or the
 public request/response contract in `app/schemas/`.
 
-Fields used as risk signals in Phase 1 (see `app/schemas/request.py`):
-    - check_in.severity
-    - check_in.duration
-    - check_in.symptoms (count only, not symptom identity/content)
-    - medical_context.medical_history (presence only, as a small flat modifier)
+Fields used as risk signals (see `app/schemas/request.py`):
+    - pain_level (0-10 self-reported scale; assumed range, see
+      `app/schemas/request.py::PAIN_LEVEL_MIN/MAX` — not confirmed by the
+      backend contract)
+    - symptoms (count only, not symptom identity/content)
 
-Fields intentionally NOT analyzed by this module (accepted and validated by
-the Phase 0 contract, but read elsewhere in the pipeline, not here):
-    - medical_context.medication_adherence — analyzed by
-      `app/analysis/medication_adherence.py` (Phase 3), not this baseline.
-    - historical_context.previous_checkins — analyzed by
-      `app/analysis/trend_detector.py` (Phase 2), not this baseline.
+Fields intentionally NOT scored yet, even though the contract accepts them:
+    - mood — no agreed vocabulary or risk mapping exists for this field.
+      Scoring free-text/choice mood without a defined scale would be
+      inventing clinical judgment, not implementing an agreed rule, so it
+      is carried through into `reason` as "received but not scored" and
+      left for a deliberate future decision.
+    - vitals — the contract defines no sub-schema (units, expected keys, or
+      normal ranges) for this field, so there is nothing deterministic to
+      score against. Same treatment as `mood`.
+    - notes — free text; scoring it would require NLP/LLM inference, which
+      is explicitly out of scope for this phase.
+This mirrors the existing pattern already used elsewhere in this codebase
+for accepted-but-unscored fields (e.g. `medication_name` in the pre-Phase-6
+contract) rather than being a new convention.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.schemas.common import AlertRecipient, DurationUnit, RiskLevel, SeverityLevel
-from app.schemas.request import AIAnalysisRequest, Duration, MedicalContext
+from app.schemas.common import NotificationRecipient, RiskLevel
+from app.schemas.request import AIAnalysisRequest
 
-MODEL_VERSION = "rule-engine-v4"
-"""Identifies the deterministic rule-based pipeline version used to produce
-a response — the Phase 1 current-check-in baseline in this module, plus any
-later bounded adjustment stages composed on top of it (Phase 2 adds a
-bounded historical-trend adjustment; Phase 3 adds a bounded
-medication-adherence adjustment; Phase 4 adds deterministic follow-up
-recommendation; see `app/analysis/risk_assessor.py` and
-`app/analysis/follow_up_recommender.py`). This is still not an ML model.
-Bump this string whenever the composed pipeline's behavior changes, and use
-this single constant everywhere the response `model_version` value is
-needed (engine, response builder, tests) so it stays consistent."""
+MODEL_VERSION = "rule-engine-v6"
+"""Identifies the deterministic rule pipeline version. Not part of the
+agreed wire response contract (see `app/schemas/response.py`), but kept as
+an internal constant for logs and future diagnostics."""
 
 # --- Rule constants ------------------------------------------------------
-# These weights and thresholds are an explicit, documented engineering
-# baseline chosen for a deterministic MVP demo. They are not derived from
-# clinical research and must not be presented as medically validated.
-
-SEVERITY_SCORES: dict[SeverityLevel, int] = {
-    SeverityLevel.MILD: 15,
-    SeverityLevel.MODERATE: 40,
-    SeverityLevel.SEVERE: 70,
-}
-
-# Duration is normalized to hours, then bucketed into an additive score.
-_HOURS_PER_UNIT: dict[DurationUnit, int] = {
-    DurationUnit.HOURS: 1,
-    DurationUnit.DAYS: 24,
-    DurationUnit.WEEKS: 24 * 7,
-}
-_DURATION_HOURS_SHORT = 24   # <= 24h:  +0
-_DURATION_HOURS_MEDIUM = 72  # <= 72h:  +10
-_DURATION_HOURS_LONG = 168   # <= 168h: +20, else +30
-
-_SYMPTOM_COUNT_FEW = 1   # <= 1 symptom:  +0
-_SYMPTOM_COUNT_SEVERAL = 3  # <= 3 symptoms: +10, else +20
-
-MEDICAL_HISTORY_MODIFIER = 5
-"""Flat bump applied when the patient has any documented medical-history
-entry. This only signals that history was disclosed; it does not weigh or
-interpret specific conditions."""
+# Hand-picked engineering defaults for a deterministic MVP demo. Not derived
+# from clinical research and must not be presented as medically validated.
 
 RISK_SCORE_MIN = 0
 RISK_SCORE_MAX = 100
 
-# Risk-level boundaries (inclusive). Chosen so the three bands are
-# reasonably balanced across the achievable 0-100 range.
-LOW_UPPER_BOUND = 34     # score 0-34    -> Low
-MEDIUM_UPPER_BOUND = 69  # score 35-69   -> Medium
-# score 70-100 -> High
+# Pain level (0-10) bucketed into an additive score, out of a 75-point share
+# of the 0-100 total (the remaining 25 points come from symptom count).
+_PAIN_BUCKETS: tuple[tuple[int, int], ...] = (
+    (2, 0),   # 0-2: no meaningful contribution
+    (5, 25),  # 3-5: mild-to-moderate
+    (8, 50),  # 6-8: significant
+    (10, 75),  # 9-10: severe
+)
 
-ALERT_RECIPIENT_BY_RISK_LEVEL: dict[RiskLevel, AlertRecipient] = {
-    RiskLevel.LOW: AlertRecipient.NONE,
-    RiskLevel.MEDIUM: AlertRecipient.CARE_TEAM,
-    RiskLevel.HIGH: AlertRecipient.PHYSICIAN,
+_SYMPTOM_COUNT_FEW = 1      # <= 1 symptom:  +0
+_SYMPTOM_COUNT_SEVERAL = 3  # <= 3 symptoms: +10, else +25
+
+# Risk-level boundaries (inclusive), unchanged in spirit from earlier phases.
+LOW_UPPER_BOUND = 34     # score 0-34    -> low
+MEDIUM_UPPER_BOUND = 69  # score 35-69   -> medium
+# score 70-100 -> high
+
+NOTIFICATION_RECIPIENT_BY_RISK_LEVEL: dict[RiskLevel, NotificationRecipient] = {
+    RiskLevel.LOW: NotificationRecipient.NONE,
+    RiskLevel.MEDIUM: NotificationRecipient.CARETAKER,
+    RiskLevel.HIGH: NotificationRecipient.DOCTOR,
 }
-"""Placeholder response-field mapping only. Phase 1 does NOT perform, queue,
-or trigger any real alert or notification delivery, and never outputs
-`emergency_services` automatically."""
+"""Informational-only mapping — see `NotificationRecipient` docstring. The
+backend's own `apps.alerts.rules` is the actual routing decision-maker."""
 
 
 @dataclass(frozen=True)
 class RiskAssessment:
     """Pure output of the rule engine, before it is wrapped in the response contract."""
 
-    risk_score: int
+    risk_score: int  # internal 0-100 scale; converted to 0.0-1.0 at the response boundary
     risk_level: RiskLevel
     reason: str
-    alert_recipient: AlertRecipient
+    notification_recipient: NotificationRecipient
 
 
-def duration_to_hours(duration: Duration) -> int:
-    """Normalize a Duration value+unit pair to a whole number of hours."""
-
-    return duration.value * _HOURS_PER_UNIT[duration.unit]
-
-
-def score_severity(severity: SeverityLevel) -> int:
-    return SEVERITY_SCORES[severity]
-
-
-def score_duration(duration: Duration) -> int:
-    hours = duration_to_hours(duration)
-    if hours <= _DURATION_HOURS_SHORT:
+def score_pain_level(pain_level: int | None) -> int:
+    if pain_level is None:
         return 0
-    if hours <= _DURATION_HOURS_MEDIUM:
-        return 10
-    if hours <= _DURATION_HOURS_LONG:
-        return 20
-    return 30
+    for upper_bound, score in _PAIN_BUCKETS:
+        if pain_level <= upper_bound:
+            return score
+    return _PAIN_BUCKETS[-1][1]
 
 
 def score_symptom_count(symptom_count: int) -> int:
@@ -130,32 +104,18 @@ def score_symptom_count(symptom_count: int) -> int:
         return 0
     if symptom_count <= _SYMPTOM_COUNT_SEVERAL:
         return 10
-    return 20
+    return 25
 
 
-def score_medical_history(medical_context: MedicalContext) -> int:
-    return MEDICAL_HISTORY_MODIFIER if medical_context.medical_history else 0
-
-
-def compute_risk_score(
-    severity: SeverityLevel,
-    duration: Duration,
-    symptom_count: int,
-    medical_context: MedicalContext,
-) -> int:
+def compute_risk_score(pain_level: int | None, symptom_count: int) -> int:
     """Sum the individual factor scores and clamp to the 0-100 contract range."""
 
-    total = (
-        score_severity(severity)
-        + score_duration(duration)
-        + score_symptom_count(symptom_count)
-        + score_medical_history(medical_context)
-    )
+    total = score_pain_level(pain_level) + score_symptom_count(symptom_count)
     return max(RISK_SCORE_MIN, min(RISK_SCORE_MAX, total))
 
 
 def classify_risk_level(risk_score: int) -> RiskLevel:
-    """Deterministically map a 0-100 score onto Low / Medium / High."""
+    """Deterministically map a 0-100 score onto low / medium / high."""
 
     if risk_score <= LOW_UPPER_BOUND:
         return RiskLevel.LOW
@@ -164,20 +124,20 @@ def classify_risk_level(risk_score: int) -> RiskLevel:
     return RiskLevel.HIGH
 
 
-def map_alert_recipient(risk_level: RiskLevel) -> AlertRecipient:
+def map_notification_recipient(risk_level: RiskLevel) -> NotificationRecipient:
     """Placeholder response classification only — see module docstring."""
 
-    return ALERT_RECIPIENT_BY_RISK_LEVEL[risk_level]
+    return NOTIFICATION_RECIPIENT_BY_RISK_LEVEL[risk_level]
 
 
 def build_reason(
-    severity: SeverityLevel,
-    severity_score: int,
-    duration_hours: int,
-    duration_score: int,
+    pain_level: int | None,
+    pain_score: int,
     symptom_count: int,
     symptom_score: int,
-    history_score: int,
+    mood: str | None,
+    vitals_present: bool,
+    notes_present: bool,
 ) -> str:
     """Compose a deterministic explanation from the actual factors used.
 
@@ -185,28 +145,34 @@ def build_reason(
     of this text is a fabricated clinical explanation or diagnosis.
     """
 
-    parts = [f"Reported severity '{severity.value}' contributed {severity_score} point(s)."]
+    parts: list[str] = []
 
-    if duration_score > 0:
-        parts.append(
-            f"Symptom duration of {duration_hours} hour(s) contributed an "
-            f"additional {duration_score} point(s)."
-        )
+    if pain_level is None:
+        parts.append("No pain level was reported, so it contributed 0 point(s).")
     else:
-        parts.append("Symptom duration was short enough to add no additional points.")
+        parts.append(f"Reported pain level {pain_level}/10 contributed {pain_score} point(s).")
 
-    if symptom_score > 0:
+    if symptom_count == 0:
+        parts.append("No symptoms were reported, contributing 0 point(s).")
+    elif symptom_score > 0:
         parts.append(
-            f"Reporting {symptom_count} symptoms together contributed an "
+            f"Reporting {symptom_count} symptom(s) together contributed an "
             f"additional {symptom_score} point(s)."
         )
     else:
         parts.append("Only one symptom was reported, adding no additional points.")
 
-    if history_score > 0:
+    unscored = []
+    if mood:
+        unscored.append("mood")
+    if vitals_present:
+        unscored.append("vitals")
+    if notes_present:
+        unscored.append("notes")
+    if unscored:
         parts.append(
-            f"Documented medical history is present and added a minor "
-            f"{history_score}-point modifier."
+            f"{', '.join(unscored)} data was received but is not yet scored by this "
+            "deterministic baseline (no agreed scoring rule for these fields)."
         )
 
     parts.append(
@@ -217,39 +183,34 @@ def build_reason(
 
 
 def assess(request: AIAnalysisRequest) -> RiskAssessment:
-    """Run the full Phase 1 rule engine against a validated request.
+    """Run the full rule engine against a validated request.
 
-    Only `request.check_in` and `request.medical_context.medical_history`
-    are read. `medication_adherence` and `historical_context` are
-    intentionally ignored in Phase 1 (see module docstring).
+    Only `pain_level` and `symptoms` (count) are scored. `mood`, `vitals`,
+    and `notes` are validated and carried through into `reason` as received
+    but unscored — see module docstring.
     """
 
-    severity = request.check_in.severity
-    duration = request.check_in.duration
-    symptom_count = len(request.check_in.symptoms)
-    medical_context = request.medical_context
+    symptom_count = len(request.symptoms)
 
-    severity_score = score_severity(severity)
-    duration_score = score_duration(duration)
+    pain_score = score_pain_level(request.pain_level)
     symptom_score = score_symptom_count(symptom_count)
-    history_score = score_medical_history(medical_context)
 
-    risk_score = compute_risk_score(severity, duration, symptom_count, medical_context)
+    risk_score = compute_risk_score(request.pain_level, symptom_count)
     risk_level = classify_risk_level(risk_score)
     reason = build_reason(
-        severity,
-        severity_score,
-        duration_to_hours(duration),
-        duration_score,
+        request.pain_level,
+        pain_score,
         symptom_count,
         symptom_score,
-        history_score,
+        request.mood,
+        bool(request.vitals),
+        bool(request.notes),
     )
-    alert_recipient = map_alert_recipient(risk_level)
+    notification_recipient = map_notification_recipient(risk_level)
 
     return RiskAssessment(
         risk_score=risk_score,
         risk_level=risk_level,
         reason=reason,
-        alert_recipient=alert_recipient,
+        notification_recipient=notification_recipient,
     )
