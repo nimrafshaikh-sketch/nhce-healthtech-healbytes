@@ -23,7 +23,7 @@ from typing import Dict, List, Optional
 
 from pydantic import Field
 
-from app.schemas.common import NonEmptyStr, StrictModel
+from app.schemas.common import MedicationAdherenceStatus, NonEmptyStr, StrictModel
 
 # --- Enums mirroring real backend TextChoices (values copied verbatim) -----
 
@@ -190,6 +190,23 @@ class AppointmentRecord(StrictModel):
     reason: str = ""
 
 
+class MedicationReminderLogRecord(StrictModel):
+    """Mirrors `MedicationReminderLogSerializer` fields
+    (`backend.apps.medications.models.MedicationReminderLog`) - one row per
+    reminder actually dispatched for a medication, used to deterministically
+    derive an adherence signal (see `medication_adherence` on
+    `PatientHistory` / `compute_medication_adherence` in
+    `summary_service.py`). `sent_at` mirrors the real model's
+    `auto_now_add=True` field - a dispatched reminder always has one.
+    `acknowledged_at` is `None` until the patient acknowledges it."""
+
+    id: int
+    medication_id: int = Field(description="FK to the MedicationRecord.id this reminder belongs to.")
+    scheduled_for: datetime
+    sent_at: datetime
+    acknowledged_at: Optional[datetime] = None
+
+
 class PatientHistoryRequest(StrictModel):
     """Full Phase 2 request contract. All history lists default to empty -
     a patient with no check-ins, no medications, no lab results, or no
@@ -207,6 +224,12 @@ class PatientHistoryRequest(StrictModel):
     medications: List[MedicationRecord] = Field(default_factory=list)
     lab_tests: List[LabTestRecord] = Field(default_factory=list)
     appointments: List[AppointmentRecord] = Field(default_factory=list)
+    medication_reminder_logs: List[MedicationReminderLogRecord] = Field(
+        default_factory=list,
+        description="Optional. Reminder-dispatch history used to compute "
+        "medication_adherence in the response. Safe to omit entirely - "
+        "existing callers of this endpoint are unaffected.",
+    )
 
 
 # --- Response: computed summary ---------------------------------------------
@@ -275,6 +298,43 @@ class OpenFollowUpSummary(StrictModel):
     reason: str
 
 
+MEDICATION_ADHERENCE_DISCLAIMER = (
+    "Medication-adherence status here is a deterministic engineering "
+    "heuristic computed only from the supplied reminder-dispatch records "
+    "(acknowledged vs. sent). It is not a clinically validated "
+    "medication-safety judgment, diagnosis, or treatment recommendation, "
+    "and a medication with no reminder-log data is always 'unknown', "
+    "never penalized."
+)
+
+
+class MedicationAdherenceDetail(StrictModel):
+    """Deterministic per-medication adherence classification. See
+    `compute_medication_adherence` in `summary_service.py` for the exact
+    reminders_acknowledged/reminders_sent thresholds used."""
+
+    medication_id: int
+    name: str
+    status: MedicationAdherenceStatus
+    reminders_sent: int
+    reminders_acknowledged: int
+    adherence_rate: Optional[float] = Field(
+        default=None,
+        description="reminders_acknowledged / reminders_sent, 0.0-1.0. "
+        "None only when reminders_sent == 0 (status is then 'unknown').",
+    )
+
+
+class MedicationAdherenceSummary(StrictModel):
+    """Patient-level medication-adherence rollup. Always present in the
+    response (even with zero medications, as an empty/'unknown' summary) -
+    see `PatientHistory.medication_adherence`."""
+
+    overall_status: MedicationAdherenceStatus
+    medications: List[MedicationAdherenceDetail] = Field(default_factory=list)
+    detail: str
+
+
 class PatientHistory(StrictModel):
     checkin_count: int
     days_since_last_checkin: Optional[int] = None
@@ -286,6 +346,11 @@ class PatientHistory(StrictModel):
     open_follow_up: Optional[OpenFollowUpSummary] = None
     """`None` when there is no `scheduled`/`confirmed` appointment still
     ahead of `as_of` - see `OpenFollowUpSummary` docstring."""
+    medication_adherence: MedicationAdherenceSummary
+    """New, additive field - computed from `medication_reminder_logs` on the
+    request (see `MedicationAdherenceSummary`). Always present; existing
+    Phase 2 consumers that only read the pre-existing fields are
+    unaffected."""
 
 
 class PatientHistorySummaryResponse(StrictModel):

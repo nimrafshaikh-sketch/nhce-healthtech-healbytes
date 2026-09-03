@@ -20,6 +20,10 @@ def test_history_summary_valid_payload_returns_200_and_valid_contract(client):
     assert history["medications"][0]["name"] == "Lisinopril"
     assert history["latest_lab"]["id"] == 20
     assert history["open_follow_up"]["id"] == 30
+    # medication_adherence is a new, additive field; the base factory payload
+    # supplies no reminder logs, so it must be a safe, non-penalizing "unknown".
+    assert history["medication_adherence"]["overall_status"] == "unknown"
+    assert history["medication_adherence"]["medications"][0]["status"] == "unknown"
 
 
 def test_history_summary_rejects_missing_patient_id(client):
@@ -68,3 +72,60 @@ def test_analyze_endpoint_still_works_unaffected_by_history_module(client):
 
     response = client.post("/api/v1/analyze", json=valid_request_payload())
     assert response.status_code == 200
+
+
+# --- medication_reminder_logs / medication_adherence (additive extension) ----
+
+
+def test_history_summary_computes_medication_adherence_from_reminder_logs(client):
+    payload = valid_history_request_payload()
+    # factory's medication id is 10 (Lisinopril)
+    payload["medication_reminder_logs"] = [
+        {
+            "id": 1, "medication_id": 10,
+            "scheduled_for": "2026-08-01T08:00:00+00:00",
+            "sent_at": "2026-08-01T08:00:05+00:00",
+            "acknowledged_at": "2026-08-01T08:10:00+00:00",
+        },
+        {
+            "id": 2, "medication_id": 10,
+            "scheduled_for": "2026-08-02T08:00:00+00:00",
+            "sent_at": "2026-08-02T08:00:05+00:00",
+            "acknowledged_at": None,
+        },
+    ]
+
+    response = client.post("/api/v1/history/summary", json=payload)
+
+    assert response.status_code == 200
+    adherence = response.json()["history"]["medication_adherence"]
+    assert adherence["overall_status"] == "partially_adherent"
+    med = adherence["medications"][0]
+    assert med["medication_id"] == 10
+    assert med["reminders_sent"] == 2
+    assert med["reminders_acknowledged"] == 1
+    assert med["adherence_rate"] == 0.5
+
+
+def test_history_summary_rejects_malformed_medication_reminder_log(client):
+    payload = valid_history_request_payload()
+    payload["medication_reminder_logs"] = [
+        {"id": 1, "medication_id": "not-an-int", "scheduled_for": "2026-08-01T08:00:00+00:00",
+         "sent_at": "2026-08-01T08:00:05+00:00"}
+    ]
+
+    response = client.post("/api/v1/history/summary", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_history_summary_omitting_medication_reminder_logs_field_still_works(client):
+    """A caller written against the original Phase 2 contract (before this
+    field existed) must keep working unmodified."""
+    payload = valid_history_request_payload()
+    assert "medication_reminder_logs" not in payload
+
+    response = client.post("/api/v1/history/summary", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["history"]["medication_adherence"]["overall_status"] == "unknown"

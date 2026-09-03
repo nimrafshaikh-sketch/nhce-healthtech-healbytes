@@ -74,3 +74,55 @@ def test_malformed_timestamp_is_rejected():
     payload["as_of"] = "not-a-timestamp"
     with pytest.raises(ValidationError):
         PatientHistoryRequest.model_validate(payload)
+
+
+# --- medication_reminder_logs (additive, Phase 2 extension) -------------------
+
+
+def test_payload_without_medication_reminder_logs_field_is_still_valid():
+    """Backward compatibility: every payload accepted before this field
+    existed must still be accepted, defaulting to an empty list."""
+    payload = valid_history_request_payload()
+    assert "medication_reminder_logs" not in payload  # factory predates this field
+    request = PatientHistoryRequest.model_validate(payload)
+    assert request.medication_reminder_logs == []
+
+
+def test_valid_medication_reminder_log_is_accepted():
+    payload = valid_history_request_payload()
+    payload["medication_reminder_logs"] = [
+        {
+            "id": 1,
+            "medication_id": 10,
+            "scheduled_for": "2026-09-01T08:00:00+00:00",
+            "sent_at": "2026-09-01T08:00:05+00:00",
+            "acknowledged_at": "2026-09-01T08:10:00+00:00",
+        }
+    ]
+    request = PatientHistoryRequest.model_validate(payload)
+    assert len(request.medication_reminder_logs) == 1
+    assert request.medication_reminder_logs[0].acknowledged_at is not None
+
+
+def test_medication_reminder_log_missing_sent_at_is_rejected():
+    payload = valid_history_request_payload()
+    payload["medication_reminder_logs"] = [
+        {"id": 1, "medication_id": 10, "scheduled_for": "2026-09-01T08:00:00+00:00"}
+    ]
+    with pytest.raises(ValidationError):
+        PatientHistoryRequest.model_validate(payload)
+
+
+def test_medication_reminder_log_unknown_field_is_rejected():
+    payload = valid_history_request_payload()
+    payload["medication_reminder_logs"] = [
+        {
+            "id": 1,
+            "medication_id": 10,
+            "scheduled_for": "2026-09-01T08:00:00+00:00",
+            "sent_at": "2026-09-01T08:00:05+00:00",
+            "unexpected": "nope",
+        }
+    ]
+    with pytest.raises(ValidationError):
+        PatientHistoryRequest.model_validate(payload)

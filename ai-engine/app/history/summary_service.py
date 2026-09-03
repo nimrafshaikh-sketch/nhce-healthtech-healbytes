@@ -21,6 +21,10 @@ from app.history.schemas import (
     LabTestStatus,
     LatestCheckinSummary,
     LatestLabSummary,
+    MedicationAdherenceDetail,
+    MedicationAdherenceSummary,
+    MEDICATION_ADHERENCE_DISCLAIMER,
+    MedicationReminderLogRecord,
     MedicationRecord,
     MedicationSummary,
     OpenFollowUpSummary,
@@ -34,6 +38,7 @@ from app.history.schemas import (
     VitalTrendEntry,
     VitalTrendSummary,
 )
+from app.schemas.common import MedicationAdherenceStatus
 
 MIN_CHECKINS_FOR_SYMPTOM_TREND = 2
 """Fewer than this many check-ins is insufficient evidence for a directional
@@ -239,6 +244,112 @@ def compute_current_medications(
     ]
 
 
+# --- Medication adherence -------------------------------------------------------
+
+ADHERENT_RATE_THRESHOLD = 0.8
+"""acknowledged/sent ratio at or above this is classified 'adherent'."""
+
+PARTIALLY_ADHERENT_RATE_THRESHOLD = 0.5
+"""acknowledged/sent ratio at or above this (but below the adherent
+threshold) is classified 'partially_adherent'; below this is
+'non_adherent'. Both thresholds are hand-picked engineering defaults for
+this hackathon MVP - not medically validated - exactly like every other
+bounded threshold in this codebase (see e.g. `risk_engine.py`)."""
+
+
+def _classify_medication_adherence(sent: int, acknowledged: int) -> MedicationAdherenceStatus:
+    """Deterministic per-medication classification from reminder-dispatch
+    counts. No reminder-log data at all -> 'unknown', never penalized -
+    mirrors the same "missing data is never punished" rule already used by
+    `app/analysis/medication_adherence.py` in the Phase 1 pipeline."""
+
+    if sent == 0:
+        return MedicationAdherenceStatus.UNKNOWN
+    rate = acknowledged / sent
+    if rate >= ADHERENT_RATE_THRESHOLD:
+        return MedicationAdherenceStatus.ADHERENT
+    if rate >= PARTIALLY_ADHERENT_RATE_THRESHOLD:
+        return MedicationAdherenceStatus.PARTIALLY_ADHERENT
+    return MedicationAdherenceStatus.NON_ADHERENT
+
+
+_OVERALL_STATUS_PRIORITY = [
+    MedicationAdherenceStatus.NON_ADHERENT,
+    MedicationAdherenceStatus.PARTIALLY_ADHERENT,
+    MedicationAdherenceStatus.ADHERENT,
+]
+"""Worst-first priority for rolling up per-medication statuses into one
+overall status: any non_adherent medication makes the overall picture
+non_adherent regardless of how many others are fine, then
+partially_adherent, then adherent; 'unknown' is the fallback when nothing
+more concerning was observed."""
+
+
+def compute_medication_adherence(
+    medications: List[MedicationRecord],
+    reminder_logs: List[MedicationReminderLogRecord],
+) -> MedicationAdherenceSummary:
+    """Deterministically compute a per-medication and overall adherence
+    classification from supplied reminder-dispatch records - the AI Engine's
+    first real medication-adherence *computation* (Phase 1's
+    `medication_adherence.py` only consumes an already-known
+    `adherence_status`; nothing before this produced one from data).
+
+    Every medication supplied is evaluated (not just currently-active ones),
+    since a just-ended medication's adherence history is still relevant
+    context. A medication with zero matching reminder logs is 'unknown',
+    never penalized.
+    """
+
+    if not medications:
+        return MedicationAdherenceSummary(
+            overall_status=MedicationAdherenceStatus.UNKNOWN,
+            medications=[],
+            detail=f"No medications supplied. {MEDICATION_ADHERENCE_DISCLAIMER}",
+        )
+
+    logs_by_medication: dict[int, List[MedicationReminderLogRecord]] = {}
+    for log in reminder_logs:
+        logs_by_medication.setdefault(log.medication_id, []).append(log)
+
+    details = []
+    for medication in sorted(medications, key=lambda m: (m.name, m.id)):
+        logs = logs_by_medication.get(medication.id, [])
+        sent = len(logs)
+        acknowledged = sum(1 for log in logs if log.acknowledged_at is not None)
+        status = _classify_medication_adherence(sent, acknowledged)
+        rate = (acknowledged / sent) if sent > 0 else None
+        details.append(
+            MedicationAdherenceDetail(
+                medication_id=medication.id,
+                name=medication.name,
+                status=status,
+                reminders_sent=sent,
+                reminders_acknowledged=acknowledged,
+                adherence_rate=rate,
+            )
+        )
+
+    statuses = {d.status for d in details}
+    overall_status = next(
+        (status for status in _OVERALL_STATUS_PRIORITY if status in statuses),
+        MedicationAdherenceStatus.UNKNOWN,
+    )
+
+    evaluated = sum(1 for d in details if d.reminders_sent > 0)
+    detail = (
+        f"Evaluated {len(details)} medication(s), {evaluated} with reminder-dispatch "
+        f"data. Engineering inference: overall adherence classified as "
+        f"'{overall_status.value}' (worst-observed-status rollup). {MEDICATION_ADHERENCE_DISCLAIMER}"
+    )
+
+    return MedicationAdherenceSummary(
+        overall_status=overall_status,
+        medications=details,
+        detail=detail,
+    )
+
+
 # --- Latest lab result --------------------------------------------------------
 
 _MIN_DATETIME = datetime.min.replace(tzinfo=timezone.utc)
@@ -348,6 +459,9 @@ def build_history_summary(request: PatientHistoryRequest) -> PatientHistorySumma
         medications=compute_current_medications(request.medications, as_of),
         latest_lab=compute_latest_lab(request.lab_tests),
         open_follow_up=compute_open_follow_up(request.appointments, as_of),
+        medication_adherence=compute_medication_adherence(
+            request.medications, request.medication_reminder_logs
+        ),
     )
 
     return PatientHistorySummaryResponse(

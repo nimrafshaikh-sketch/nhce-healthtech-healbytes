@@ -6,12 +6,14 @@ from app.history.schemas import (
     AppointmentRecord,
     CheckinRecord,
     LabTestRecord,
+    MedicationReminderLogRecord,
     MedicationRecord,
     PatientHistoryRequest,
     SymptomTrend,
     TrendDirection,
 )
 from app.history.summary_service import build_history_summary
+from app.schemas.common import MedicationAdherenceStatus
 
 AS_OF = datetime(2026, 9, 4, tzinfo=timezone.utc)
 
@@ -381,3 +383,123 @@ def test_open_follow_up_appointment_exactly_at_as_of_counts_as_upcoming():
     )
     summary = build_history_summary(request).history
     assert summary.open_follow_up.id == 1
+
+
+# --- Medication adherence (computed from reminder-dispatch logs) ---------------------
+
+
+def _reminder(id, medication_id, acknowledged=True):
+    return MedicationReminderLogRecord(
+        id=id,
+        medication_id=medication_id,
+        scheduled_for="2026-09-01T08:00:00+00:00",
+        sent_at="2026-09-01T08:00:05+00:00",
+        acknowledged_at="2026-09-01T08:10:00+00:00" if acknowledged else None,
+    )
+
+
+def _medication(id, name="Med"):
+    return MedicationRecord(
+        id=id, name=name, dosage="10mg", frequency="once_daily", start_date="2026-01-01",
+    )
+
+
+def test_medication_adherence_no_medications_supplied():
+    summary = build_history_summary(_request()).history.medication_adherence
+    assert summary.overall_status == MedicationAdherenceStatus.UNKNOWN
+    assert summary.medications == []
+
+
+def test_medication_adherence_medication_with_no_reminder_logs_is_unknown():
+    request = _request(medications=[_medication(1)])
+    summary = build_history_summary(request).history.medication_adherence
+    assert summary.overall_status == MedicationAdherenceStatus.UNKNOWN
+    assert summary.medications[0].status == MedicationAdherenceStatus.UNKNOWN
+    assert summary.medications[0].reminders_sent == 0
+    assert summary.medications[0].adherence_rate is None
+
+
+def test_medication_adherence_high_ack_rate_is_adherent():
+    request = _request(
+        medications=[_medication(1)],
+        medication_reminder_logs=[
+            _reminder(1, medication_id=1, acknowledged=True),
+            _reminder(2, medication_id=1, acknowledged=True),
+            _reminder(3, medication_id=1, acknowledged=True),
+            _reminder(4, medication_id=1, acknowledged=True),
+            _reminder(5, medication_id=1, acknowledged=False),  # 4/5 = 0.8 -> boundary, adherent
+        ],
+    )
+    summary = build_history_summary(request).history.medication_adherence
+    detail = summary.medications[0]
+    assert detail.reminders_sent == 5
+    assert detail.reminders_acknowledged == 4
+    assert detail.adherence_rate == 0.8
+    assert detail.status == MedicationAdherenceStatus.ADHERENT
+    assert summary.overall_status == MedicationAdherenceStatus.ADHERENT
+
+
+def test_medication_adherence_mid_ack_rate_is_partially_adherent():
+    request = _request(
+        medications=[_medication(1)],
+        medication_reminder_logs=[
+            _reminder(1, medication_id=1, acknowledged=True),
+            _reminder(2, medication_id=1, acknowledged=False),  # 1/2 = 0.5 -> boundary, partial
+        ],
+    )
+    summary = build_history_summary(request).history.medication_adherence
+    detail = summary.medications[0]
+    assert detail.adherence_rate == 0.5
+    assert detail.status == MedicationAdherenceStatus.PARTIALLY_ADHERENT
+    assert summary.overall_status == MedicationAdherenceStatus.PARTIALLY_ADHERENT
+
+
+def test_medication_adherence_low_ack_rate_is_non_adherent():
+    request = _request(
+        medications=[_medication(1)],
+        medication_reminder_logs=[
+            _reminder(1, medication_id=1, acknowledged=True),
+            _reminder(2, medication_id=1, acknowledged=False),
+            _reminder(3, medication_id=1, acknowledged=False),
+        ],
+    )
+    summary = build_history_summary(request).history.medication_adherence
+    detail = summary.medications[0]
+    assert round(detail.adherence_rate, 4) == round(1 / 3, 4)
+    assert detail.status == MedicationAdherenceStatus.NON_ADHERENT
+    assert summary.overall_status == MedicationAdherenceStatus.NON_ADHERENT
+
+
+def test_medication_adherence_overall_rollup_picks_worst_status():
+    request = _request(
+        medications=[_medication(1, "Adherent-Med"), _medication(2, "NonAdherent-Med")],
+        medication_reminder_logs=[
+            _reminder(1, medication_id=1, acknowledged=True),
+            _reminder(2, medication_id=1, acknowledged=True),
+            _reminder(3, medication_id=2, acknowledged=False),
+            _reminder(4, medication_id=2, acknowledged=False),
+        ],
+    )
+    summary = build_history_summary(request).history.medication_adherence
+    statuses = {d.medication_id: d.status for d in summary.medications}
+    assert statuses[1] == MedicationAdherenceStatus.ADHERENT
+    assert statuses[2] == MedicationAdherenceStatus.NON_ADHERENT
+    assert summary.overall_status == MedicationAdherenceStatus.NON_ADHERENT  # worst wins
+
+
+def test_medication_adherence_ignores_logs_for_unrelated_medication_ids():
+    request = _request(
+        medications=[_medication(1)],
+        medication_reminder_logs=[
+            _reminder(1, medication_id=999, acknowledged=True),  # not medication 1
+        ],
+    )
+    summary = build_history_summary(request).history.medication_adherence
+    assert summary.medications[0].reminders_sent == 0
+    assert summary.medications[0].status == MedicationAdherenceStatus.UNKNOWN
+
+
+def test_medication_adherence_deterministic_ordering_by_name_then_id():
+    request = _request(medications=[_medication(2, "Zeta"), _medication(1, "Alpha")])
+    summary = build_history_summary(request).history.medication_adherence
+    assert [d.name for d in summary.medications] == ["Alpha", "Zeta"]
