@@ -1,0 +1,18 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: healbytes-postgres
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - healbytes_postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+
+volumes:
+  healbytes_postgres_data:
