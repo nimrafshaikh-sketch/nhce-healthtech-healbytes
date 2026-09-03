@@ -1,12 +1,18 @@
 import { apiFetch, USE_MOCK, mockDelay } from "./client";
 import { ENDPOINTS } from "./endpoints";
-import { demoDoctor, initialPatients } from "../data/demoData";
+import { demoDoctor, demoReceptionist, demoLabTech, initialPatients } from "../data/demoData";
 
 export async function login({ role, email, password }) {
   if (USE_MOCK) {
     await mockDelay(600);
     if (role === "DOCTOR") {
       return { token: "demo-doctor-token", user: demoDoctor };
+    }
+    if (role === "RECEPTIONIST") {
+      return { token: "demo-receptionist-token", user: demoReceptionist };
+    }
+    if (role === "LAB_TECH") {
+      return { token: "demo-lab-tech-token", user: demoLabTech };
     }
     const patient =
       initialPatients.find((p) => p.email.toLowerCase() === String(email).toLowerCase()) ||
