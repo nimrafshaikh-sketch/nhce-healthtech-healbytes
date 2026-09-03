@@ -2,7 +2,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.core.test_utils import auth_headers, make_doctor
+from apps.core.test_utils import auth_headers, make_doctor, make_receptionist
 from apps.invitations.models import InvitationCode
 from apps.patients.models import Patient
 
@@ -77,3 +77,33 @@ class InvitationFlowTests(APITestCase):
         resp = self.client.post(reverse("invitation-generate"), {"patient": {"full_name": "X"}},
                                  format="json", **auth_headers(patient_user))
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class ReceptionistInvitationReuseTests(APITestCase):
+    def setUp(self):
+        self.doctor = make_doctor()
+        self.receptionist = make_receptionist()
+        self.reception_headers = auth_headers(self.receptionist)
+
+    def test_receptionist_generates_invite_for_existing_patient_owned_by_doctor(self):
+        patient = Patient.objects.create(doctor=self.doctor, full_name="Reception Made Me")
+        resp = self.client.post(
+            reverse("invitation-generate"), {"patient_id": patient.id}, format="json", **self.reception_headers,
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        invitation = InvitationCode.objects.get(code=resp.data["code"])
+        # invitation belongs to the patient's assigned doctor, not the receptionist
+        self.assertEqual(invitation.doctor_id, self.doctor.id)
+
+    def test_receptionist_cannot_use_inline_patient_creation(self):
+        resp = self.client.post(
+            reverse("invitation-generate"), {"patient": {"full_name": "Nope"}}, format="json",
+            **self.reception_headers,
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_receptionist_generate_for_nonexistent_patient_id_is_400_not_500(self):
+        resp = self.client.post(
+            reverse("invitation-generate"), {"patient_id": 999999}, format="json", **self.reception_headers,
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)

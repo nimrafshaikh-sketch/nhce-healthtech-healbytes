@@ -1,9 +1,10 @@
 # HealBytes Backend
 
-Django + DRF backend covering: Doctor/Patient auth, patient registration,
-invitation codes, medications & reminders, daily check-ins, alerts, QR
-verification, and in-app notifications, for the AI-Based Autonomous
-Healthcare Coordination and Follow-up Agent.
+Django + DRF backend covering: Doctor/Patient/Receptionist/Lab Tech auth,
+patient registration, invitation codes, medications & reminders, daily
+check-ins, alerts, QR verification, appointments, lab tests, and
+notifications, for the AI-Based Autonomous Healthcare Coordination and
+Follow-up Agent.
 
 This directory is self-contained and does not modify anything outside
 `backend/` (frontend, AI engine, or shared infra are owned by other
@@ -24,14 +25,17 @@ backend/
     urls.py, celery.py, wsgi.py, asgi.py
   apps/
     core/            shared base models, permissions, exception handler
-    accounts/         Doctor/Patient auth (custom User, JWT)
-    patients/         Patient profile + caretaker details, analytics
-    invitations/      Invitation code generate/redeem
+    accounts/         Doctor/Patient/Receptionist/Lab Tech auth (custom User, JWT)
+    patients/         Patient profile + caretaker details, receptionist admin
+                       serializer/search, analytics
+    invitations/      Invitation code generate/redeem (Doctor or Receptionist)
     medications/       Medication + reminder scheduling (Celery Beat)
     checkins/           Daily check-ins + AI-engine stub integration
     alerts/            Alert model + routing rules
-    qr/                 QR token generate/verify
-    notifications/     In-app notification records
+    qr/                 QR token generate/verify (assigned Doctor only)
+    notifications/     In-app notification records + email audit log
+    appointments/      Appointment booking/reschedule/confirm/cancel
+    labtests/           LabTestRequest + LabTestResult, claim/result/review flow
   manage.py, requirements.txt, Dockerfile, .env.example
 ```
 
@@ -65,12 +69,15 @@ celery -A config beat -l info   # dispatches medication reminders every minute
 DJANGO_SETTINGS_MODULE=config.settings.test python manage.py test apps
 ```
 
-55 tests covering auth, invitation generation/redemption (incl. 15-min
-expiry), patient scoping/permissions, medication CRUD + reminder dispatch
+101 tests covering auth, invitation generation/redemption (incl. 15-min
+expiry, and Receptionist-on-behalf-of-doctor reuse), patient scoping/permissions
+(incl. Receptionist create/search), medication CRUD + reminder dispatch
 (+ patient email), AI client response parsing (valid/invalid/timeout), check-in
 submission + full notification fan-out per the table above, alert
-acknowledge/resolve, QR generate/verify (incl. 15-min expiry + wrong-doctor
-rejection), and the email audit-log endpoints.
+acknowledge/resolve, QR generate/verify (incl. 15-min expiry, wrong-doctor
+rejection, and logging on every outcome including invalid tokens), the email
+audit-log endpoints, appointment booking/reschedule/confirm/cancel across all
+four roles, and the full lab test request/claim/result/review flow.
 
 ## Business-rule defaults (flagged for review)
 
@@ -127,4 +134,71 @@ rejection), and the email audit-log endpoints.
 
 `/api/auth/`, `/api/patients/`, `/api/invitations/`, `/api/medications/`,
 `/api/checkins/`, `/api/alerts/`, `/api/qr/`, `/api/notifications/`,
-`/api/analytics/` — full detail in `/api/docs/`.
+`/api/analytics/`, `/api/appointments/`, `/api/labtests/` — full detail in `/api/docs/`.
+
+
+## Roles: Receptionist & Lab Technician (added on top of Doctor/Patient)
+
+Both are internal clinic staff roles with **no public registration
+endpoint** - accounts are created via Django admin only (approved scope for
+this build; revisit if a self-service or admin-created-by-doctor flow is
+needed later).
+
+- **Receptionist** is a purely administrative actor - **no access to
+  clinical information anywhere** (no `medical_notes`, no QR/history access,
+  no lab data). Can: search patients (`GET /api/patients/search/` - requires
+  `phone_number`, or both `name` and `date_of_birth`; never an unfiltered
+  list, to avoid enumerating the roster), create a patient on behalf of a
+  chosen doctor (`POST /api/patients/` with an explicit `doctor` field),
+  generate an invitation code for a patient they created (`POST
+  /api/invitations/generate/` with `patient_id` - the invitation's `doctor`
+  is taken from the patient's assignment, not the receptionist), and book/
+  reschedule/update any appointment for any doctor/patient.
+- **Lab Technician** only ever sees lab work assigned to them or sitting in
+  the unclaimed queue - never a patient's full record, never QR/history,
+  never appointments. Claims a request (`POST
+  /api/labtests/requests/<id>/claim/`), then submits its result (`POST
+  /api/labtests/requests/<id>/result/`).
+
+**QR verification stays exactly as originally scoped**: only the patient's
+*assigned* Doctor may verify a QR code - this was deliberately NOT opened up
+to Receptionist or Lab Tech, since QR access is clinical-history access and
+neither role has clinical-data permissions in the locked role matrix. The
+only QR change in this pass was a bug fix: every verification attempt is now
+logged via `QRScanLog` regardless of outcome (invalid/expired/malformed
+token, patient not found, wrong doctor, or success) - previously the first
+two cases logged nothing at all.
+
+## Appointment
+
+`apps/appointments/models.py` - `patient`, `doctor` (required), `created_by`,
+`scheduled_at`, `duration_minutes` (default 30), `reason`, `status`
+(scheduled/confirmed/completed/cancelled/no_show), `notes`.
+
+- Receptionist: full create/reschedule/status-update, any patient/doctor.
+- Doctor: create/reschedule for their own patients only, with themselves as
+  the doctor (`POST /api/appointments/`, `PATCH /api/appointments/<id>/`).
+- Patient: read-only on their own appointments, plus two narrow transitions -
+  `POST /api/appointments/<id>/confirm/` (scheduled → confirmed) and `POST
+  /api/appointments/<id>/cancel/` (scheduled/confirmed → cancelled). No
+  general write access.
+
+## Lab Tests
+
+`apps/labtests/models.py` - `LabTestRequest` (`patient`, `requested_by`,
+`test_name` - a fixed 8-value choice field: CBC, BLOOD_GLUCOSE,
+LIPID_PROFILE, HBA1C, KFT, LFT, TFT, URINALYSIS, chosen so the AI engine's
+reference-range lookup has a stable key to match against - **confirm with
+Member 4 that these match their table**; `assigned_lab_tech`, `priority`,
+`status` - requested/in_progress/completed/cancelled) and `LabTestResult`
+(one-to-one with the request; `result_text` only, no file upload since
+there's no file storage configured in this build).
+
+Flow: Doctor requests (`POST /api/labtests/requests/`) → sits in the
+unclaimed queue → a Lab Tech claims it (`POST .../claim/`, sets
+`assigned_lab_tech` + moves to `in_progress`) → that same tech submits the
+result (`POST .../result/`, moves to `completed`) → the requesting doctor
+reviews it (`POST /api/labtests/results/<id>/review/`). Doctor can cancel
+a still-open request (`POST .../cancel/`). **Receptionist has zero access
+to this app anywhere** - matches the locked role matrix (flat No on lab
+order/result), not just result content.

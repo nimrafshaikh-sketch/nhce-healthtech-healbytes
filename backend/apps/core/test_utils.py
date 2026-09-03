@@ -18,6 +18,22 @@ def make_patient_user(email="patient@example.com", **kwargs):
     return user
 
 
+def make_receptionist(email="reception@example.com", **kwargs):
+    user = User(email=email, username=kwargs.pop("username", email.split("@")[0]),
+                role=User.Role.RECEPTIONIST, **kwargs)
+    user.set_password("StrongPass123!")
+    user.save()
+    return user
+
+
+def make_lab_tech(email="labtech@example.com", **kwargs):
+    user = User(email=email, username=kwargs.pop("username", email.split("@")[0]),
+                role=User.Role.LAB_TECH, **kwargs)
+    user.set_password("StrongPass123!")
+    user.save()
+    return user
+
+
 def auth_headers(user):
     token = RefreshToken.for_user(user).access_token
     return {"HTTP_AUTHORIZATION": f"Bearer {token}"}

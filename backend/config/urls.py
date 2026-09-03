@@ -11,6 +11,8 @@ API areas (per backend module ownership):
   /api/qr/...            apps.qr
   /api/notifications/... apps.notifications
   /api/analytics/...     apps.patients (history/analytics views)
+  /api/appointments/...  apps.appointments
+  /api/labtests/...      apps.labtests
 """
 from django.contrib import admin
 from django.urls import include, path
@@ -32,6 +34,8 @@ urlpatterns = [
     path("api/qr/", include("apps.qr.urls")),
     path("api/notifications/", include("apps.notifications.urls")),
     path("api/analytics/", include("apps.patients.analytics_urls")),
+    path("api/appointments/", include("apps.appointments.urls")),
+    path("api/labtests/", include("apps.labtests.urls")),
 
     # OpenAPI schema & docs
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),

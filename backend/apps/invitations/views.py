@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from apps.core.permissions import IsDoctor
+from apps.core.permissions import IsDoctor, IsReceptionist
 
 from .models import InvitationCode
 from .serializers import (
@@ -31,12 +31,13 @@ class InvitationListView(generics.ListAPIView):
 
 @extend_schema(
     tags=["Invitations"],
-    summary="Generate an invitation code for a patient (Doctor only)",
+    summary="Generate an invitation code for a patient (Doctor: self or existing draft patient; "
+             "Receptionist: existing patient_id only, on behalf of that patient's assigned doctor)",
     request=InvitationCodeGenerateSerializer,
     responses=InvitationCodeSerializer,
 )
 class InvitationGenerateView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsDoctor]
+    permission_classes = [permissions.IsAuthenticated, (IsDoctor | IsReceptionist)]
 
     def post(self, request):
         serializer = InvitationCodeGenerateSerializer(data=request.data, context={"request": request})

@@ -25,6 +25,30 @@ class IsPatient(BasePermission):
         )
 
 
+class IsReceptionist(BasePermission):
+    """Allows access only to authenticated users with role == 'receptionist'."""
+    message = "Only receptionists can perform this action."
+
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and getattr(request.user, "role", None) == "receptionist"
+        )
+
+
+class IsLabTech(BasePermission):
+    """Allows access only to authenticated users with role == 'lab_tech'."""
+    message = "Only lab technicians can perform this action."
+
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and getattr(request.user, "role", None) == "lab_tech"
+        )
+
+
 class IsDoctorOfPatient(BasePermission):
     """Object-level check: the requesting doctor must be linked to the target patient."""
     message = "You are not the assigned doctor for this patient."
