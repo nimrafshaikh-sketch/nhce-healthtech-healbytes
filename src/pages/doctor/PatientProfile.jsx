@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Plus, CalendarPlus } from "lucide-react";
+import { ArrowLeft, Plus, CalendarPlus, FileText, FlaskConical } from "lucide-react";
 import Topbar from "../../components/layout/Topbar";
 import RiskBadge from "../../components/healthcare/RiskBadge";
 import RiskScore from "../../components/healthcare/RiskScore";
@@ -12,14 +12,20 @@ import EmptyState from "../../components/ui/EmptyState";
 import Modal from "../../components/ui/Modal";
 import Input from "../../components/ui/Input";
 import MedicationFormModal from "../../components/healthcare/MedicationFormModal";
+import PrescriptionFormModal from "../../components/doctor/PrescriptionFormModal";
+import LabOrderFormModal from "../../components/doctor/LabOrderFormModal";
 import { useData } from "../../context/DataContext";
 import { formatRelativeTime, formatDayLabel, formatTime } from "../../utils/dateUtils";
+import { getPrescriptionsForPatient } from "../../api/prescription.api";
+import { getLabResultsForPatient } from "../../api/lab.api";
+import { useAuth } from "../../context/AuthContext";
 
-const TABS = ["Overview", "Check-ins", "Medications", "History", "Analytics"];
+const TABS = ["Overview", "Check-ins", "Medications", "Prescriptions", "Labs", "History", "Analytics"];
 
 export default function PatientProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const {
     getPatientById,
     getCheckinsForPatient,
@@ -35,8 +41,26 @@ export default function PatientProfile() {
 
   const [tab, setTab] = useState("Overview");
   const [medModalOpen, setMedModalOpen] = useState(false);
+  const [prescModalOpen, setPrescModalOpen] = useState(false);
+  const [labModalOpen, setLabModalOpen] = useState(false);
   const [followUpOpen, setFollowUpOpen] = useState(false);
   const [followUpForm, setFollowUpForm] = useState({ date: "", time: "10:30", reason: "" });
+
+  const [prescriptions, setPrescriptions] = useState([]);
+  const [labs, setLabs] = useState([]);
+
+  const fetchData = async () => {
+    if (patient) {
+      const pData = await getPrescriptionsForPatient(patient.id);
+      setPrescriptions(pData);
+      const lData = await getLabResultsForPatient(patient.id);
+      setLabs(lData);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, [patient?.id]);
 
   if (!patient) {
     return (
@@ -54,7 +78,7 @@ export default function PatientProfile() {
     if (!followUpForm.date) return;
     const date = new Date(`${followUpForm.date}T${followUpForm.time || "10:00"}`);
     updatePatient(patient.id, {
-      nextFollowUp: { doctorName: "Dr. Sarah Chen", date, reason: followUpForm.reason || "Follow-up review" },
+      nextFollowUp: { doctorName: user?.name || "Dr. Sarah Chen", date, reason: followUpForm.reason || "Follow-up review" },
     });
     setFollowUpOpen(false);
   }
@@ -88,8 +112,11 @@ export default function PatientProfile() {
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
-            <Button variant="secondary" leftIcon={<Plus size={15} />} onClick={() => setMedModalOpen(true)}>
-              Add Medication
+            <Button variant="secondary" leftIcon={<FileText size={15} />} onClick={() => setPrescModalOpen(true)}>
+              Prescribe
+            </Button>
+            <Button variant="secondary" leftIcon={<FlaskConical size={15} />} onClick={() => setLabModalOpen(true)}>
+              Order Lab
             </Button>
             <Button variant="secondary" leftIcon={<CalendarPlus size={15} />} onClick={() => setFollowUpOpen(true)}>
               Schedule Follow-up
@@ -210,6 +237,76 @@ export default function PatientProfile() {
               />
             ))}
 
+          {tab === "Prescriptions" && (
+            <div className="space-y-4">
+              {prescriptions.length === 0 ? (
+                <EmptyState title="No prescriptions" description="You haven't issued any prescriptions for this patient." />
+              ) : (
+                prescriptions.map((p) => (
+                  <div key={p.id} className="bg-white rounded-xl shadow-sm border border-brand-200 p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <h3 className="font-bold text-brand-800">Prescription Issued</h3>
+                      <span className="text-xs text-ink-400">{new Date(p.date).toLocaleDateString()}</span>
+                    </div>
+                    <div className="space-y-2 mt-3">
+                      {p.medications.map((m, idx) => (
+                        <div key={idx} className="bg-brand-50 p-3 rounded-lg border border-brand-100 flex justify-between items-center">
+                          <div>
+                            <p className="font-bold text-brand-900">{m.name} - {m.dosage}</p>
+                            <p className="text-sm text-brand-700 mt-1">
+                              {m.frequency} for {m.duration}
+                            </p>
+                          </div>
+                          <span className="text-xs text-brand-600 font-medium">{m.instructions}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {tab === "Labs" && (
+            <div className="space-y-4">
+              {labs.length === 0 ? (
+                <EmptyState title="No lab results" description="No lab results are available." />
+              ) : (
+                labs.map((res) => (
+                  <div key={res.id} className="bg-white rounded-xl shadow-sm border border-ink-200 p-5">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="font-bold text-ink-900">{res.testType}</h3>
+                        <p className="text-xs text-ink-500">{new Date(res.date).toLocaleDateString()}</p>
+                      </div>
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${res.releaseStatus === 'RELEASED' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+                        {res.releaseStatus === 'RELEASED' ? 'Released to Patient' : 'Review Needed'}
+                      </span>
+                    </div>
+                    <div className="space-y-3 border-t border-ink-100 pt-4">
+                      {res.values.map((v, i) => (
+                        <div key={i} className="flex justify-between items-center text-sm">
+                          <span className="font-medium text-ink-700">{v.name}</span>
+                          <div className="flex items-center gap-3">
+                            <span className={`font-bold ${v.flag !== 'NORMAL' ? 'text-red-600' : 'text-ink-900'}`}>
+                              {v.value} <span className="font-normal text-ink-500 text-xs">{v.unit}</span>
+                            </span>
+                            <span className="text-xs text-ink-400 w-16 text-right">{v.referenceRange}</span>
+                          </div>
+                        </div>
+                      ))}
+                      {res.aiAnalysis && (
+                        <div className="mt-4 bg-brand-50 p-3 rounded-lg border border-brand-100 text-sm text-brand-800">
+                          <strong>AI Summary:</strong> {res.aiAnalysis}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
           {tab === "History" && (
             <div className="space-y-1">
               {checkins.length ? (
@@ -249,6 +346,22 @@ export default function PatientProfile() {
         open={medModalOpen}
         onClose={() => setMedModalOpen(false)}
         onSubmit={(form) => addMedication(patient.id, form)}
+      />
+
+      <PrescriptionFormModal
+        open={prescModalOpen}
+        onClose={() => { setPrescModalOpen(false); fetchData(); }}
+        patientId={patient.id}
+        doctorId={user?.id}
+      />
+
+      <LabOrderFormModal
+        open={labModalOpen}
+        onClose={() => setLabModalOpen(false)}
+        patientId={patient.id}
+        patientName={patient.name}
+        doctorId={user?.id}
+        doctorName={user?.name}
       />
 
       <Modal open={followUpOpen} onClose={() => setFollowUpOpen(false)} title="Schedule Follow-up">
