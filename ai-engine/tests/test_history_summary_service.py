@@ -273,10 +273,95 @@ def test_latest_lab_ignores_pending_and_resultless_requests():
     assert summary.latest_lab is None
 
 
+def test_latest_lab_prefers_result_date_over_a_later_created_at_fallback():
+    """Regression test: a completed lab with only a `created_at` fallback
+    must NOT outrank a completed lab with a real `result_date`, even if
+    that fallback `created_at` is chronologically later than the other
+    record's `result_date`."""
+
+    request = _request(
+        lab_tests=[
+            LabTestRecord(
+                id=1, test_name="CBC", status="completed", result_text="has a real result_date",
+                result_date="2026-09-03T09:00:00+00:00",
+            ),
+            LabTestRecord(
+                id=2, test_name="URINALYSIS", status="completed",
+                result_text="only has created_at, and it's later in raw value",
+                result_date=None, created_at="2026-09-03T23:00:00+00:00",
+            ),
+        ]
+    )
+    summary = build_history_summary(request).history
+    assert summary.latest_lab.id == 1
+    assert summary.latest_lab.result_text == "has a real result_date"
+
+
+def test_latest_lab_falls_back_to_created_at_when_no_lab_has_result_date():
+    request = _request(
+        lab_tests=[
+            LabTestRecord(
+                id=1, test_name="CBC", status="completed", result_text="older",
+                result_date=None, created_at="2026-08-01T00:00:00+00:00",
+            ),
+            LabTestRecord(
+                id=2, test_name="HBA1C", status="completed", result_text="newer",
+                result_date=None, created_at="2026-09-01T00:00:00+00:00",
+            ),
+        ]
+    )
+    summary = build_history_summary(request).history
+    assert summary.latest_lab.id == 2
+    assert summary.latest_lab.result_text == "newer"
+
+
 # --- Open follow-up / appointment selection -----------------------------------------
 
 
-def test_open_follow_up_picks_soonest_open_appointment():
+def test_open_follow_up_past_and_future_open_picks_future():
+    request = _request(
+        appointments=[
+            AppointmentRecord(id=1, scheduled_at="2026-08-01T10:00:00+00:00", status="scheduled", reason="stale"),
+            AppointmentRecord(id=2, scheduled_at="2026-09-15T10:00:00+00:00", status="scheduled", reason="upcoming"),
+        ]
+    )
+    summary = build_history_summary(request).history
+    assert summary.open_follow_up.id == 2
+
+
+def test_open_follow_up_past_scheduled_only_returns_none():
+    request = _request(
+        appointments=[
+            AppointmentRecord(id=1, scheduled_at="2026-08-01T10:00:00+00:00", status="scheduled", reason="stale"),
+        ]
+    )
+    summary = build_history_summary(request).history
+    assert summary.open_follow_up is None
+
+
+def test_open_follow_up_future_confirmed_is_selected():
+    request = _request(
+        appointments=[
+            AppointmentRecord(id=1, scheduled_at="2026-09-15T10:00:00+00:00", status="confirmed", reason="checkup"),
+        ]
+    )
+    summary = build_history_summary(request).history
+    assert summary.open_follow_up.id == 1
+
+
+def test_open_follow_up_ignores_completed_cancelled_and_no_show():
+    request = _request(
+        appointments=[
+            AppointmentRecord(id=1, scheduled_at="2026-09-15T10:00:00+00:00", status="completed", reason=""),
+            AppointmentRecord(id=2, scheduled_at="2026-09-16T10:00:00+00:00", status="cancelled", reason=""),
+            AppointmentRecord(id=3, scheduled_at="2026-09-17T10:00:00+00:00", status="no_show", reason=""),
+        ]
+    )
+    summary = build_history_summary(request).history
+    assert summary.open_follow_up is None
+
+
+def test_open_follow_up_multiple_future_open_picks_soonest():
     request = _request(
         appointments=[
             AppointmentRecord(id=1, scheduled_at="2026-09-20T10:00:00+00:00", status="confirmed", reason=""),
@@ -286,3 +371,13 @@ def test_open_follow_up_picks_soonest_open_appointment():
     )
     summary = build_history_summary(request).history
     assert summary.open_follow_up.id == 2
+
+
+def test_open_follow_up_appointment_exactly_at_as_of_counts_as_upcoming():
+    request = _request(
+        appointments=[
+            AppointmentRecord(id=1, scheduled_at=AS_OF, status="scheduled", reason="exactly now"),
+        ]
+    )
+    summary = build_history_summary(request).history
+    assert summary.open_follow_up.id == 1

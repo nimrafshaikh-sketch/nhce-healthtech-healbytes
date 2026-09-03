@@ -147,7 +147,26 @@ class MedicationRecord(StrictModel):
 class LabTestRecord(StrictModel):
     """Mirrors `LabTestRequestSerializer` (+ nested result) fields relevant
     to a history summary. No units or reference ranges exist in the real
-    backend contract, so none are modeled here."""
+    backend contract, so none are modeled here.
+
+    `result_date` and `created_at` are deliberately two separate fields
+    because the real backend has two separate, non-interchangeable
+    timestamps here:
+      - `result_date` should be populated from when the result was actually
+        recorded (`LabTestResultSerializer.created_at` on the nested
+        `result` object) - this is the field the summary prefers.
+      - `created_at`, when supplied on a record that has no `result_date`,
+        is used ONLY as a fallback and MUST also be the lab RESULT's
+        recorded time (the nested `result.created_at`), never the lab
+        REQUEST's own `created_at` (i.e. not `LabTestRequestSerializer
+        .created_at`, which is when the doctor ordered the test - an
+        unrelated, typically much earlier timestamp). Sending the request's
+        `created_at` here would make an old, slow-to-result test look more
+        recent than a genuinely newer result.
+
+    See `app/history/summary_service.py::_lab_sort_key` for how these two
+    fields are prioritized when selecting the latest lab result.
+    """
 
     id: int
     test_name: LabTestName
@@ -157,6 +176,9 @@ class LabTestRecord(StrictModel):
     result_date: Optional[datetime] = None
     reviewed_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
+    """Fallback-only timestamp, used solely when `result_date` is absent.
+    Must be the lab RESULT's recorded time, not the lab REQUEST's order
+    time - see the class docstring above."""
 
 
 class AppointmentRecord(StrictModel):
@@ -240,6 +262,13 @@ class LatestLabSummary(StrictModel):
 
 
 class OpenFollowUpSummary(StrictModel):
+    """The soonest still-upcoming appointment with an open status
+    (`scheduled` or `confirmed`). See
+    `app/history/summary_service.py::compute_open_follow_up` for the exact
+    selection rule - in particular, an open-status appointment whose
+    `scheduled_at` has already passed relative to the request's `as_of` is
+    excluded, not selected, so it can never mask a genuine future one."""
+
     id: int
     scheduled_at: datetime
     status: AppointmentStatus
@@ -255,6 +284,8 @@ class PatientHistory(StrictModel):
     medications: List[MedicationSummary] = Field(default_factory=list)
     latest_lab: Optional[LatestLabSummary] = None
     open_follow_up: Optional[OpenFollowUpSummary] = None
+    """`None` when there is no `scheduled`/`confirmed` appointment still
+    ahead of `as_of` - see `OpenFollowUpSummary` docstring."""
 
 
 class PatientHistorySummaryResponse(StrictModel):

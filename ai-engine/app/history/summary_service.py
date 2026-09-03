@@ -241,15 +241,34 @@ def compute_current_medications(
 
 # --- Latest lab result --------------------------------------------------------
 
+_MIN_DATETIME = datetime.min.replace(tzinfo=timezone.utc)
+"""Sentinel used only when a lab record has neither `result_date` nor
+`created_at` - so such a record still sorts deterministically (last), never
+raising a naive/aware datetime comparison error."""
+
 
 def _lab_sort_key(lab: LabTestRecord):
-    """Most-recent-first key: prefer result_date, fall back to created_at,
-    then id, so ordering is fully deterministic even with missing dates."""
+    """Two-tier, most-recent-first key:
 
-    reference = lab.result_date or lab.created_at
-    # None sorts before any real datetime when reversed by using a tuple
-    # with an explicit "has_date" flag.
-    return (reference is not None, reference, lab.id)
+    Tier 1 (highest priority): any lab with a real `result_date` - ranked
+    among themselves by that `result_date`. A record with a real
+    `result_date` always outranks one without, regardless of how recent the
+    other's `created_at` fallback is.
+
+    Tier 2 (fallback only): labs with no `result_date` at all - ranked among
+    themselves by `created_at` (see `LabTestRecord.created_at` docstring:
+    this must be the *result's* recorded time, not the request's order
+    time). A record with neither field sorts last within this tier.
+
+    `lab.id` breaks ties for full determinism.
+    """
+
+    has_result_date = lab.result_date is not None
+    if has_result_date:
+        reference = lab.result_date
+    else:
+        reference = lab.created_at or _MIN_DATETIME
+    return (has_result_date, reference, lab.id)
 
 
 def compute_latest_lab(lab_tests: List[LabTestRecord]) -> Optional[LatestLabSummary]:
@@ -277,17 +296,31 @@ def compute_latest_lab(lab_tests: List[LabTestRecord]) -> Optional[LatestLabSumm
 _OPEN_APPOINTMENT_STATUSES = {AppointmentStatus.SCHEDULED, AppointmentStatus.CONFIRMED}
 
 
-def compute_open_follow_up(appointments: List[AppointmentRecord]) -> Optional[OpenFollowUpSummary]:
-    """The soonest appointment still in an open state (scheduled or
-    confirmed) - status is authoritative here, not the date, since a
-    past-dated appointment that's still 'scheduled' is exactly the kind of
-    stale follow-up this field exists to surface."""
+def compute_open_follow_up(
+    appointments: List[AppointmentRecord], as_of: datetime
+) -> Optional[OpenFollowUpSummary]:
+    """The soonest *upcoming* appointment in an open state (`scheduled` or
+    `confirmed`).
 
-    open_appointments = [a for a in appointments if a.status in _OPEN_APPOINTMENT_STATUSES]
-    if not open_appointments:
+    Both conditions are required:
+      - status is `scheduled` or `confirmed` (`completed`, `cancelled`, and
+        `no_show` are never returned, regardless of date);
+      - `scheduled_at` is not before `as_of` (an open-status appointment
+        whose date has already passed is stale, not upcoming, and must not
+        mask a genuine future appointment - it is simply excluded here).
+
+    Returns `None` when there is no open appointment still ahead of `as_of`.
+    """
+
+    upcoming_open = [
+        a
+        for a in appointments
+        if a.status in _OPEN_APPOINTMENT_STATUSES and a.scheduled_at >= as_of
+    ]
+    if not upcoming_open:
         return None
 
-    soonest = min(open_appointments, key=lambda a: (a.scheduled_at, a.id))
+    soonest = min(upcoming_open, key=lambda a: (a.scheduled_at, a.id))
     return OpenFollowUpSummary(
         id=soonest.id,
         scheduled_at=soonest.scheduled_at,
@@ -314,7 +347,7 @@ def build_history_summary(request: PatientHistoryRequest) -> PatientHistorySumma
         vital_trend=compute_vital_trend(request.checkins),
         medications=compute_current_medications(request.medications, as_of),
         latest_lab=compute_latest_lab(request.lab_tests),
-        open_follow_up=compute_open_follow_up(request.appointments),
+        open_follow_up=compute_open_follow_up(request.appointments, as_of),
     )
 
     return PatientHistorySummaryResponse(
