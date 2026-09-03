@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, Plus, CalendarPlus } from "lucide-react";
 import Topbar from "../../components/layout/Topbar";
@@ -8,11 +8,13 @@ import Avatar from "../../components/ui/Avatar";
 import Button from "../../components/ui/Button";
 import CheckinSummary from "../../components/healthcare/CheckinSummary";
 import MedicationCard from "../../components/healthcare/MedicationCard";
+import AIHistorySummaryCard from "../../components/healthcare/AIHistorySummaryCard";
 import EmptyState from "../../components/ui/EmptyState";
 import Modal from "../../components/ui/Modal";
 import Input from "../../components/ui/Input";
 import MedicationFormModal from "../../components/healthcare/MedicationFormModal";
 import { useData } from "../../context/DataContext";
+import { getPatientAISummary } from "../../api/analytics.api";
 import { formatRelativeTime, formatDayLabel, formatTime } from "../../utils/dateUtils";
 
 const TABS = ["Overview", "Check-ins", "Medications", "History", "Analytics"];
@@ -37,6 +39,28 @@ export default function PatientProfile() {
   const [medModalOpen, setMedModalOpen] = useState(false);
   const [followUpOpen, setFollowUpOpen] = useState(false);
   const [followUpForm, setFollowUpForm] = useState({ date: "", time: "10:30", reason: "" });
+  const [aiSummary, setAiSummary] = useState(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (id) {
+      setSummaryLoading(true);
+      getPatientAISummary(id)
+        .then((data) => {
+          if (active) setAiSummary(data);
+        })
+        .catch((err) => {
+          console.error("AI summary error:", err);
+        })
+        .finally(() => {
+          if (active) setSummaryLoading(false);
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [id]);
 
   if (!patient) {
     return (
@@ -140,6 +164,11 @@ export default function PatientProfile() {
                 </div>
               </div>
 
+              {/* AI Clinical History Summary */}
+              <div className="lg:col-span-3">
+                <AIHistorySummaryCard summary={aiSummary} loading={summaryLoading} />
+              </div>
+
               <div className="rounded-2xl border border-ink-300/15 bg-white p-6 shadow-card lg:col-span-2">
                 <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-500">Recent Check-ins</h2>
                 {checkins.length ? (
@@ -211,36 +240,38 @@ export default function PatientProfile() {
             ))}
 
           {tab === "History" && (
-            <div className="space-y-1">
-              {checkins.length ? (
-                checkins.map((c, i) => (
-                  <div key={c.id} className="flex gap-3">
-                    <div className="flex flex-col items-center">
-                      <span className="mt-1.5 h-2 w-2 rounded-full bg-brand-500" />
-                      {i !== checkins.length - 1 && <span className="mt-1 w-px flex-1 bg-ink-300/20" />}
-                    </div>
-                    <div className="pb-4">
-                      <p className="text-xs text-ink-300">
-                        {formatDayLabel(c.date)} · {formatTime(c.date)}
-                      </p>
-                      <p className="text-sm font-medium text-ink-900">Daily Check-in</p>
-                      <div className="mt-1">
-                        <RiskBadge level={c.riskLevel} size="sm" />
+            <div className="space-y-6">
+              <AIHistorySummaryCard summary={aiSummary} loading={summaryLoading} />
+              <div className="space-y-1">
+                {checkins.length ? (
+                  checkins.map((c, i) => (
+                    <div key={c.id} className="flex gap-3">
+                      <div className="flex flex-col items-center">
+                        <span className="mt-1.5 h-2 w-2 rounded-full bg-brand-500" />
+                        {i !== checkins.length - 1 && <span className="mt-1 w-px flex-1 bg-ink-300/20" />}
+                      </div>
+                      <div className="pb-4">
+                        <p className="text-xs text-ink-300">
+                          {formatDayLabel(c.date)} · {formatTime(c.date)}
+                        </p>
+                        <p className="text-sm font-medium text-ink-900">Daily Check-in</p>
+                        <div className="mt-1">
+                          <RiskBadge level={c.riskLevel} size="sm" />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
-              ) : (
-                <EmptyState title="No history yet" description="Patient activity will build a timeline here." />
-              )}
+                  ))
+                ) : (
+                  <EmptyState title="No history yet" description="Patient activity will build a timeline here." />
+                )}
+              </div>
             </div>
           )}
 
           {tab === "Analytics" && (
-            <EmptyState
-              title="Analytics coming into focus"
-              description="Trend charts for this patient will appear here once more check-ins are recorded."
-            />
+            <div className="space-y-6">
+              <AIHistorySummaryCard summary={aiSummary} loading={summaryLoading} />
+            </div>
           )}
         </div>
       </main>

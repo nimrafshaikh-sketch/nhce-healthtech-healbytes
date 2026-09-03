@@ -1,17 +1,16 @@
-"""Basic history/analytics endpoints.
+"""Basic history/analytics and AI history summary endpoints.
 
-Deliberately simple aggregate counts/trends over existing data - NOT medical
-risk analysis (that stays in the separate AI engine, per scope). Doctor can
-view any of their own patients; a patient can only view their own.
+Doctor can view any of their assigned patients; a patient can only view their own.
 """
 from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
-from rest_framework import permissions, serializers
+from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.alerts.models import Alert
+from apps.checkins.ai_client import get_patient_history_summary
 from apps.checkins.models import DailyCheckin
 from apps.core.permissions import IsDoctor, IsPatient
 from apps.medications.models import Medication, MedicationReminderLog
@@ -71,7 +70,7 @@ def _build_analytics(patient):
     }
 
 
-@extend_schema(tags=["Analytics"], summary="Doctor: analytics/history summary for one of their patients",
+@extend_schema(tags=["Analytics"], summary="Doctor: aggregate counters for one of their patients",
                responses=PatientAnalyticsSerializer)
 class PatientAnalyticsView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsDoctor]
@@ -81,7 +80,7 @@ class PatientAnalyticsView(APIView):
         return Response(_build_analytics(patient))
 
 
-@extend_schema(tags=["Analytics"], summary="Patient: analytics/history summary for the logged-in patient",
+@extend_schema(tags=["Analytics"], summary="Patient: aggregate counters for the logged-in patient",
                responses=PatientAnalyticsSerializer)
 class MyAnalyticsView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsPatient]
@@ -89,3 +88,33 @@ class MyAnalyticsView(APIView):
     def get(self, request):
         patient = get_object_or_404(Patient, user=request.user)
         return Response(_build_analytics(patient))
+
+
+@extend_schema(tags=["Analytics"], summary="Doctor: AI-computed clinical history summary for an assigned patient")
+class PatientAISummaryView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsDoctor]
+
+    def get(self, request, patient_id):
+        patient = get_object_or_404(Patient, id=patient_id, doctor=request.user)
+        summary = get_patient_history_summary(patient)
+        if summary is None:
+            return Response(
+                {"detail": "AI engine is currently unavailable."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(summary)
+
+
+@extend_schema(tags=["Analytics"], summary="Patient: AI-computed clinical history summary for self")
+class MyAISummaryView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsPatient]
+
+    def get(self, request):
+        patient = get_object_or_404(Patient, user=request.user)
+        summary = get_patient_history_summary(patient)
+        if summary is None:
+            return Response(
+                {"detail": "AI engine is currently unavailable."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(summary)

@@ -13,5 +13,6 @@ export async function login({ role, email, password }) {
       initialPatients[0];
     return { token: "demo-patient-token", user: patient };
   }
-  return apiFetch(ENDPOINTS.AUTH_LOGIN, { method: "POST", body: { role, email, password } });
+  const data = await apiFetch(ENDPOINTS.AUTH_LOGIN, { method: "POST", body: { email, password } });
+  return { token: data.access || data.token, user: data.user };
 }
