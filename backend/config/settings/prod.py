@@ -2,7 +2,7 @@ import os
 
 from .base import *  # noqa
 
-DEBUG = False
+DEBUG = os.environ.get("DJANGO_DEBUG", "False") == "True"
 
 DATABASES = {
     "default": {
