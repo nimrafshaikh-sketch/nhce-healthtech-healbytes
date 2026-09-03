@@ -6,7 +6,17 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+# python-dotenv is already a declared dependency (requirements.txt) but was
+# never actually wired up, so backend/.env was silently ignored by
+# `manage.py runserver`/etc. and every os.environ.get() below always fell
+# back to its default. load_dotenv() only fills in variables not already
+# set in the real environment, so this is a no-op wherever env vars are
+# supplied another way (e.g. docker-compose's `environment:` block in prod).
+load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "insecure-dev-key-change-me")
 DEBUG = os.environ.get("DJANGO_DEBUG", "False") == "True"
