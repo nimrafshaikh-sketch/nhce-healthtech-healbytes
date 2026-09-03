@@ -8,39 +8,55 @@ has a single narrow purpose and a much shorter lifetime).
 
 Expiry default: settings.QR_TOKEN_EXPIRY_MINUTES (5 min).
 """
-import jwt
+import hashlib
+import secrets
 from django.conf import settings
 from django.utils import timezone
 
-QR_TOKEN_TYPE = "patient_qr"
+from .models import QRAccess
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def generate_qr_token(patient) -> dict:
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = _hash_token(raw_token)
     now = timezone.now()
     expires_at = now + timezone.timedelta(minutes=settings.QR_TOKEN_EXPIRY_MINUTES)
-    payload = {
-        "type": QR_TOKEN_TYPE,
-        "patient_id": patient.id,
-        "iat": int(now.timestamp()),
-        "exp": int(expires_at.timestamp()),
-    }
-    token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
-    return {"token": token, "expires_at": expires_at}
+    
+    QRAccess.objects.create(
+        patient=patient,
+        token=token_hash,
+        expires_at=expires_at,
+    )
+    
+    return {"token": raw_token, "expires_at": expires_at}
 
 
 class InvalidQRToken(Exception):
     pass
 
 
-def verify_qr_token(token: str) -> int:
-    """Returns the patient_id if valid, else raises InvalidQRToken."""
+def verify_qr_token(token: str) -> QRAccess:
+    """Returns the QRAccess object if valid, else raises InvalidQRToken."""
+    token_hash = _hash_token(token)
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
-    except jwt.ExpiredSignatureError:
-        raise InvalidQRToken("QR code has expired.")
-    except jwt.InvalidTokenError:
+        qr_access = QRAccess.objects.get(token=token_hash)
+    except QRAccess.DoesNotExist:
         raise InvalidQRToken("QR code is invalid.")
 
-    if payload.get("type") != QR_TOKEN_TYPE:
-        raise InvalidQRToken("Not a valid patient QR token.")
-    return payload["patient_id"]
+    if not qr_access.is_active:
+        raise InvalidQRToken("QR code has been revoked.")
+
+    if qr_access.expires_at < timezone.now():
+        qr_access.access_status = QRAccess.AccessStatus.EXPIRED
+        qr_access.is_active = False
+        qr_access.save(update_fields=["access_status", "is_active"])
+        raise InvalidQRToken("QR code has expired.")
+        
+    if qr_access.access_status != QRAccess.AccessStatus.PENDING:
+        raise InvalidQRToken(f"QR code is already {qr_access.access_status.lower()}.")
+
+    return qr_access

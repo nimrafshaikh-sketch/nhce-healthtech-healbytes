@@ -26,9 +26,9 @@ class CheckinApiTests(APITestCase):
         self.doctor = make_doctor()  # doctor.email always set (required field)
         self.patient_user = make_patient_user()  # patient_user.email always set
         self.patient = Patient.objects.create(
-            doctor=self.doctor, full_name="Frank", user=self.patient_user,
+            doctor=self.doctor.doctor_profile, name="Frank", user=self.patient_user,
             caretaker_name="Cara", caretaker_email="cara@example.com",
-        )
+        , date_of_birth="1990-01-01")
         self.patient_headers = auth_headers(self.patient_user)
         self.doctor_headers = auth_headers(self.doctor)
 

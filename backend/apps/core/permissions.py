@@ -31,8 +31,8 @@ class IsDoctorOfPatient(BasePermission):
 
     def has_object_permission(self, request, view, obj):
         patient = getattr(obj, "patient", obj)
-        doctor_id = getattr(patient, "doctor_id", None)
-        return doctor_id is not None and doctor_id == request.user.id
+        doctor = getattr(patient, "doctor", None)
+        return doctor is not None and doctor.user_id == request.user.id
 
 
 class IsSelfPatient(BasePermission):

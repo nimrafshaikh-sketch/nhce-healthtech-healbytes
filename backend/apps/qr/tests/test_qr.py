@@ -12,7 +12,7 @@ class QRApiTests(APITestCase):
         self.doctor = make_doctor()
         self.other_doctor = make_doctor(email="other@example.com", username="other")
         self.patient_user = make_patient_user()
-        self.patient = Patient.objects.create(doctor=self.doctor, full_name="Hank", user=self.patient_user)
+        self.patient = Patient.objects.create(doctor=self.doctor.doctor_profile, name="Hank", date_of_birth="1990-01-01", user=self.patient_user)
         self.patient_headers = auth_headers(self.patient_user)
         self.doctor_headers = auth_headers(self.doctor)
         self.other_doctor_headers = auth_headers(self.other_doctor)

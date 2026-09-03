@@ -17,7 +17,7 @@ class InvitationFlowTests(APITestCase):
         from django.utils import timezone
         self.assertEqual(settings.INVITATION_CODE_EXPIRY_MINUTES, 15)
         gen_resp = self.client.post(
-            reverse("invitation-generate"), {"patient": {"full_name": "Zoe"}}, format="json", **self.headers,
+            reverse("invitation-generate"), {"patient": {"name": "Zoe"}}, format="json", **self.headers,
         )
         invitation = InvitationCode.objects.get(code=gen_resp.data["code"])
         delta = invitation.expires_at - timezone.now()
@@ -25,17 +25,17 @@ class InvitationFlowTests(APITestCase):
 
     def test_generate_invitation_for_new_patient(self):
         url = reverse("invitation-generate")
-        payload = {"patient": {"full_name": "John Smith", "caretaker_name": "Jane Smith",
+        payload = {"patient": {"name": "John Smith", "caretaker_name": "Jane Smith",
                                 "caretaker_phone_number": "1234567890"}}
         resp = self.client.post(url, payload, format="json", **self.headers)
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
         self.assertEqual(len(resp.data["code"]), 8)
-        self.assertTrue(Patient.objects.filter(full_name="John Smith", doctor=self.doctor).exists())
+        self.assertTrue(Patient.objects.filter(name="John Smith", doctor=self.doctor.doctor_profile).exists())
 
     def test_redeem_invitation_creates_and_links_patient_account(self):
         gen_resp = self.client.post(
             reverse("invitation-generate"),
-            {"patient": {"full_name": "Alice"}}, format="json", **self.headers,
+            {"patient": {"name": "Alice"}}, format="json", **self.headers,
         )
         code = gen_resp.data["code"]
 
@@ -45,7 +45,7 @@ class InvitationFlowTests(APITestCase):
         self.assertEqual(redeem_resp.status_code, status.HTTP_201_CREATED, redeem_resp.data)
         self.assertIn("access", redeem_resp.data)
 
-        patient = Patient.objects.get(full_name="Alice")
+        patient = Patient.objects.get(name="Alice", date_of_birth="1990-01-01")
         self.assertTrue(patient.is_linked)
         self.assertEqual(patient.user.email, "alice@example.com")
 
@@ -55,7 +55,7 @@ class InvitationFlowTests(APITestCase):
     def test_redeem_used_code_fails(self):
         gen_resp = self.client.post(
             reverse("invitation-generate"),
-            {"patient": {"full_name": "Bob"}}, format="json", **self.headers,
+            {"patient": {"name": "Bob"}}, format="json", **self.headers,
         )
         code = gen_resp.data["code"]
         redeem_payload = {"code": code, "email": "bob@example.com", "username": "bob", "password": "StrongPass123!"}
@@ -74,6 +74,6 @@ class InvitationFlowTests(APITestCase):
     def test_patient_cannot_generate_invitation(self):
         from apps.core.test_utils import make_patient_user
         patient_user = make_patient_user()
-        resp = self.client.post(reverse("invitation-generate"), {"patient": {"full_name": "X"}},
+        resp = self.client.post(reverse("invitation-generate"), {"patient": {"name": "X"}},
                                  format="json", **auth_headers(patient_user))
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)

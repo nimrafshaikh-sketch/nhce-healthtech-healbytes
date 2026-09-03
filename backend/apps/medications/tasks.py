@@ -1,52 +1,40 @@
-"""Celery tasks for medication reminders.
-
-`dispatch_due_medication_reminders` is intended to run every minute via
-Celery Beat (see README for the beat schedule entry). It finds medications
-whose reminder_times include the current HH:MM, are active today, and
-haven't already had a MedicationReminderLog created for this exact minute
-slot (enforced by the unique constraint on (medication, scheduled_for)).
-
-Creating a reminder log creates both an in-app Notification and an email
-to the patient (apps.notifications) - see notification-system spec.
-"""
 from celery import shared_task
 from django.utils import timezone
+from django.db.models import Q
 
-from .models import Medication, MedicationReminderLog
+from .models import Medication, MedicationReminder, MedicationAdherence
 
 
 @shared_task
 def dispatch_due_medication_reminders():
     now = timezone.localtime()
-    hhmm = now.strftime("%H:%M")
     today = now.date()
-    created = 0
-
-    candidates = Medication.objects.filter(
-        reminders_enabled=True,
+    current_time = now.time()
+    
+    # Simple match down to the minute
+    # Get active reminders where medication is active
+    reminders = MedicationReminder.objects.filter(
         is_active=True,
-        start_date__lte=today,
+        reminder_time__hour=current_time.hour,
+        reminder_time__minute=current_time.minute,
+        medication__start_date__lte=today,
     ).filter(
-        models_Q_end_date_ok(today)
-    )
+        Q(medication__end_date__isnull=True) | Q(medication__end_date__gte=today)
+    ).select_related('medication', 'medication__patient')
 
-    for medication in candidates:
-        if hhmm not in (medication.reminder_times or []):
-            continue
-        scheduled_for = now.replace(second=0, microsecond=0)
-        log, was_created = MedicationReminderLog.objects.get_or_create(
-            medication=medication, scheduled_for=scheduled_for,
+    created = 0
+    for reminder in reminders:
+        medication = reminder.medication
+        scheduled_time = now.replace(second=0, microsecond=0)
+        log, was_created = MedicationAdherence.objects.get_or_create(
+            medication=medication, patient=medication.patient, scheduled_time=scheduled_time,
+            defaults={'status': MedicationAdherence.Status.MISSED} # Assuming initial is MISSED until taken
         )
         if was_created:
             created += 1
             _notify_patient_of_reminder.delay(medication.id, log.id)
 
     return {"reminders_created": created}
-
-
-def models_Q_end_date_ok(today):
-    from django.db.models import Q
-    return Q(end_date__isnull=True) | Q(end_date__gte=today)
 
 
 @shared_task
@@ -59,7 +47,7 @@ def _notify_patient_of_reminder(medication_id, reminder_log_id):
     create_notification(
         user=medication.patient.user,
         notification_type="medication_reminder",
-        title=f"Time to take {medication.name}",
+        title=f"Time to take {medication.medicine_name}",
         body=f"{medication.dosage} - {medication.instructions or 'as prescribed'}",
         related_object_type="medication",
         related_object_id=medication.id,

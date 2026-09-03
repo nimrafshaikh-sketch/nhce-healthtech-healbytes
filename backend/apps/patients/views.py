@@ -19,7 +19,7 @@ class PatientListCreateView(generics.ListCreateAPIView):
         return PatientCreateSerializer if self.request.method == "POST" else PatientSerializer
 
     def get_queryset(self):
-        return Patient.objects.filter(doctor=self.request.user)
+        return Patient.objects.filter(doctor=self.request.user.doctor_profile)
 
 
 @extend_schema(tags=["Patients"], summary="Retrieve/update/delete a single patient (Doctor only, own patients)")
