@@ -10,6 +10,7 @@ from app.api.routes import router
 from app.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
+from app.history.routes import router as history_router
 
 configure_logging()
 
@@ -24,3 +25,4 @@ app = FastAPI(
 
 register_exception_handlers(app)
 app.include_router(router, prefix=settings.api_prefix)
+app.include_router(history_router, prefix=settings.api_prefix)

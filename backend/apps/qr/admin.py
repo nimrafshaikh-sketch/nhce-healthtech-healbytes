@@ -1,9 +1,9 @@
 from django.contrib import admin
 
-from .models import QRAccess
+from .models import QRScanLog
 
 
-@admin.register(QRAccess)
-class QRAccessAdmin(admin.ModelAdmin):
-    list_display = ["patient", "expires_at", "used_at", "is_active", "access_status"]
-    list_filter = ["is_active", "access_status"]
+@admin.register(QRScanLog)
+class QRScanLogAdmin(admin.ModelAdmin):
+    list_display = ["patient", "scanned_by", "success", "created_at"]
+    list_filter = ["success"]

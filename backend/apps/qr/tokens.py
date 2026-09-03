@@ -6,57 +6,61 @@ server-side when a doctor scans it. Signed with SIMPLE_JWT's signing key via
 PyJWT directly (kept separate from login access/refresh tokens - this token
 has a single narrow purpose and a much shorter lifetime).
 
-Expiry default: settings.QR_TOKEN_EXPIRY_MINUTES (5 min).
+Expiry default: settings.QR_TOKEN_EXPIRY_MINUTES (15 min).
 """
-import hashlib
-import secrets
+import jwt
 from django.conf import settings
 from django.utils import timezone
 
-from .models import QRAccess
-
-
-def _hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+QR_TOKEN_TYPE = "patient_qr"
 
 
 def generate_qr_token(patient) -> dict:
-    raw_token = secrets.token_urlsafe(32)
-    token_hash = _hash_token(raw_token)
     now = timezone.now()
     expires_at = now + timezone.timedelta(minutes=settings.QR_TOKEN_EXPIRY_MINUTES)
-    
-    QRAccess.objects.create(
-        patient=patient,
-        token=token_hash,
-        expires_at=expires_at,
-    )
-    
-    return {"token": raw_token, "expires_at": expires_at}
+    payload = {
+        "type": QR_TOKEN_TYPE,
+        "patient_id": patient.id,
+        "iat": int(now.timestamp()),
+        "exp": int(expires_at.timestamp()),
+    }
+    token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+    return {"token": token, "expires_at": expires_at}
 
 
 class InvalidQRToken(Exception):
     pass
 
 
-def verify_qr_token(token: str) -> QRAccess:
-    """Returns the QRAccess object if valid, else raises InvalidQRToken."""
-    token_hash = _hash_token(token)
+def verify_qr_token(token: str) -> int:
+    """Returns the patient_id if valid, else raises InvalidQRToken."""
     try:
-        qr_access = QRAccess.objects.get(token=token_hash)
-    except QRAccess.DoesNotExist:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        raise InvalidQRToken("QR code has expired.")
+    except jwt.InvalidTokenError:
         raise InvalidQRToken("QR code is invalid.")
 
-    if not qr_access.is_active:
-        raise InvalidQRToken("QR code has been revoked.")
+    if payload.get("type") != QR_TOKEN_TYPE:
+        raise InvalidQRToken("Not a valid patient QR token.")
+    return payload["patient_id"]
 
-    if qr_access.expires_at < timezone.now():
-        qr_access.access_status = QRAccess.AccessStatus.EXPIRED
-        qr_access.is_active = False
-        qr_access.save(update_fields=["access_status", "is_active"])
-        raise InvalidQRToken("QR code has expired.")
-        
-    if qr_access.access_status != QRAccess.AccessStatus.PENDING:
-        raise InvalidQRToken(f"QR code is already {qr_access.access_status.lower()}.")
 
-    return qr_access
+def peek_patient_id_for_audit_log(token: str):
+    """Best-effort patient_id extraction for AUDIT LOGGING ONLY when a token
+    has expired - never use this for an authorization decision. The
+    signature is still verified (so we know the token really was issued by
+    this server for this patient); only the expiry check is skipped, so an
+    expired-but-genuine scan can still be attributed to a patient in
+    QRScanLog instead of logging a blank/unknown row.
+
+    Returns None if the token isn't decodable at all (bad signature, wrong
+    type, malformed) - those cases genuinely have no known patient to log.
+    """
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"], options={"verify_exp": False})
+    except jwt.InvalidTokenError:
+        return None
+    if payload.get("type") != QR_TOKEN_TYPE:
+        return None
+    return payload.get("patient_id")

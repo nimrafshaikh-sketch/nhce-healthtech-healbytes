@@ -39,12 +39,15 @@ INSTALLED_APPS = [
     "apps.core",
     "apps.accounts",
     "apps.patients",
+    "apps.invitations",
     "apps.medications",
     "apps.checkins",
     "apps.alerts",
     "apps.qr",
     "apps.notifications",
     "apps.medical_history",
+    "apps.appointments",
+    "apps.labtests",
 ]
 
 MIDDLEWARE = [
@@ -132,6 +135,14 @@ SPECTACULAR_SETTINGS = {
                     "check-ins, alerts, QR verification and notifications.",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    # Several models have their own `status` field with different choice
+    # sets (Alert, Appointment, LabTestRequest) - name them explicitly so
+    # drf-spectacular doesn't fall back to auto-generated Status178Enum-style names.
+    "ENUM_NAME_OVERRIDES": {
+        "AlertStatusEnum": "apps.alerts.models.Alert.Status",
+        "AppointmentStatusEnum": "apps.appointments.models.Appointment.Status",
+        "LabTestRequestStatusEnum": "apps.labtests.models.LabTestRequest.Status",
+    },
 }
 
 # ---- Celery ----

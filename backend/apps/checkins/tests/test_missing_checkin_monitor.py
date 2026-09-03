@@ -21,7 +21,7 @@ class FlagMissingDailyCheckinsTests(TestCase):
     def _linked_patient(self, name="Frank", **kwargs):
         user = make_patient_user(email=f"{name.lower()}@example.com", username=name.lower())
         return Patient.objects.create(
-            doctor=self.doctor.doctor_profile, name=name, date_of_birth="1990-01-01",
+            doctor=self.doctor, full_name=name, date_of_birth="1990-01-01",
             user=user, **kwargs,
         )
 
@@ -50,7 +50,7 @@ class FlagMissingDailyCheckinsTests(TestCase):
 
     def test_unlinked_patient_draft_is_not_flagged(self):
         # No `user` yet -> invitation not redeemed -> nobody is able to check in.
-        Patient.objects.create(doctor=self.doctor.doctor_profile, name="Draft", date_of_birth="1990-01-01")
+        Patient.objects.create(doctor=self.doctor, full_name="Draft", date_of_birth="1990-01-01")
 
         result = flag_missing_daily_checkins()
 

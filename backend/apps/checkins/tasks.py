@@ -77,7 +77,7 @@ def flag_missing_daily_checkins():
 
     # Only linked patients are expected to check in - an unredeemed invite
     # (user is null) has no one able to submit one yet.
-    expected_patients = Patient.objects.filter(user__isnull=False).select_related("doctor__user")
+    expected_patients = Patient.objects.filter(user__isnull=False).select_related("doctor")
 
     checked_in_patient_ids = set(
         DailyCheckin.objects.filter(checkin_date=today).values_list("patient_id", flat=True)
@@ -91,11 +91,13 @@ def flag_missing_daily_checkins():
         if patient.id in checked_in_patient_ids:
             continue
 
-        doctor_user = getattr(patient.doctor, "user", None)
+        # Patient.doctor FKs straight to the User model (role="doctor"),
+        # not to a separate Doctor profile - see apps.accounts.models.User.
+        doctor_user = patient.doctor
         if doctor_user is None:
-            # Data integrity edge case (Patient.doctor is required/RESTRICT in
-            # the schema, so this shouldn't normally happen) - skip rather
-            # than guess who to notify.
+            # Data integrity edge case (Patient.doctor is a required FK, so
+            # this shouldn't normally happen) - skip rather than guess who
+            # to notify.
             skipped_no_doctor += 1
             continue
 
@@ -115,9 +117,9 @@ def flag_missing_daily_checkins():
         create_notification(
             user=doctor_user,
             notification_type=Notification.NotificationType.GENERAL,
-            title=f"Missing daily check-in: {patient.name}",
+            title=f"Missing daily check-in: {patient.full_name}",
             body=(
-                f"{patient.name} has not submitted a daily check-in for {today}. "
+                f"{patient.full_name} has not submitted a daily check-in for {today}. "
                 "No risk assessment is available for today - patient status is "
                 "awaiting data, not a risk level."
             ),

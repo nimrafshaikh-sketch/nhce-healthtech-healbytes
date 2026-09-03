@@ -14,6 +14,7 @@ from rest_framework.views import APIView
 from apps.alerts.models import Alert
 from apps.checkins.models import DailyCheckin
 from apps.core.permissions import IsDoctor, IsPatient
+from apps.labtests.models import LabTestResult
 from apps.medications.models import Medication, MedicationAdherence
 
 from .models import Patient
@@ -69,6 +70,27 @@ def _build_analytics(patient):
         (now_date - latest_checkin.checkin_date).days if latest_checkin else None
     )
 
+    # --- most_recent_lab_result (Member 3 / P1) -----------------------------
+    # LabTestResult -> LabTestRequest -> Patient. Only real fields from the
+    # actual apps.labtests models (verified against Member 2's models.py) -
+    # nothing invented, no unrelated clinical detail exposed.
+    latest_lab_result = (
+        LabTestResult.objects.filter(request__patient=patient)
+        .select_related("request")
+        .order_by("-created_at")
+        .first()
+    )
+    most_recent_lab_result = (
+        {
+            "test_name": latest_lab_result.request.get_test_name_display(),
+            "status": latest_lab_result.request.status,
+            "result_text": latest_lab_result.result_text,
+            "recorded_at": latest_lab_result.created_at,
+            "reviewed_at": latest_lab_result.reviewed_at,
+        }
+        if latest_lab_result else None
+    )
+
     return {
         "patient_id": patient.id,
         "checkins": {
@@ -93,12 +115,11 @@ def _build_analytics(patient):
         # History/Summary agent. Shape is stable (keys always present);
         # values are None ("not available"), never a fabricated placeholder.
         #
-        # most_recent_lab_result / most_recent_prescription are None for now:
-        # LabResult and Prescription don't exist as Django models anywhere in
-        # this repo yet (Member 2 hasn't added them - see Member 3's report).
-        # Wire the real query here once those models land; do not guess their
+        # most_recent_prescription stays None: Prescription doesn't exist as
+        # a Django model anywhere in this repo yet (Member 2 hasn't added it).
+        # Wire the real query here once that model lands; do not guess its
         # field shape in the meantime.
-        "most_recent_lab_result": None,
+        "most_recent_lab_result": most_recent_lab_result,
         "most_recent_prescription": None,
         "days_since_last_checkin": days_since_last_checkin,
     }

@@ -4,7 +4,8 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.checkins.models import DailyCheckin
-from apps.core.test_utils import make_doctor
+from apps.core.test_utils import make_doctor, make_lab_tech
+from apps.labtests.models import LabTestRequest, LabTestResult
 from apps.patients.analytics_views import _build_analytics
 from apps.patients.models import Patient
 
@@ -21,7 +22,7 @@ class BuildAnalyticsExtensionTests(TestCase):
     def setUp(self):
         self.doctor = make_doctor()
         self.patient = Patient.objects.create(
-            doctor=self.doctor.doctor_profile, name="Nora", date_of_birth="1990-01-01",
+            doctor=self.doctor, full_name="Nora", date_of_birth="1990-01-01",
         )
 
     def test_no_checkins_returns_none_not_zero(self):
@@ -35,6 +36,16 @@ class BuildAnalyticsExtensionTests(TestCase):
 
         self.assertEqual(analytics["days_since_last_checkin"], 0)
 
+    def test_days_since_last_checkin_yesterday_is_one(self):
+        checkin = DailyCheckin.objects.create(patient=self.patient)
+        DailyCheckin.objects.filter(pk=checkin.pk).update(
+            checkin_date=timezone.localdate() - timedelta(days=1)
+        )
+
+        analytics = _build_analytics(self.patient)
+
+        self.assertEqual(analytics["days_since_last_checkin"], 1)
+
     def test_days_since_last_checkin_uses_the_most_recent_of_several(self):
         older = DailyCheckin.objects.create(patient=self.patient)
         DailyCheckin.objects.filter(pk=older.pk).update(
@@ -45,15 +56,52 @@ class BuildAnalyticsExtensionTests(TestCase):
 
         self.assertEqual(analytics["days_since_last_checkin"], 5)
 
-    def test_lab_result_and_prescription_are_stubbed_none_pending_member2_models(self):
-        # LabResult / Prescription don't exist as Django models yet - the
-        # keys must still be present (stable shape for Member 4) with an
-        # honest None rather than a fabricated value.
+    def test_no_lab_result_returns_none(self):
+        analytics = _build_analytics(self.patient)
+        self.assertIsNone(analytics["most_recent_lab_result"])
+
+    def test_most_recent_lab_result_is_returned(self):
+        lab_tech = make_lab_tech()
+        request = LabTestRequest.objects.create(
+            patient=self.patient, requested_by=self.doctor,
+            test_name=LabTestRequest.TestName.CBC, status=LabTestRequest.Status.COMPLETED,
+        )
+        LabTestResult.objects.create(
+            request=request, recorded_by=lab_tech, result_text="WBC 7.2, normal range",
+        )
+
         analytics = _build_analytics(self.patient)
 
-        self.assertIn("most_recent_lab_result", analytics)
+        result = analytics["most_recent_lab_result"]
+        self.assertIsNotNone(result)
+        self.assertEqual(result["test_name"], "Complete Blood Count")
+        self.assertEqual(result["status"], LabTestRequest.Status.COMPLETED)
+        self.assertEqual(result["result_text"], "WBC 7.2, normal range")
+        self.assertIsNone(result["reviewed_at"])
+
+    def test_most_recent_lab_result_picks_the_latest_of_several(self):
+        lab_tech = make_lab_tech()
+        older_request = LabTestRequest.objects.create(
+            patient=self.patient, requested_by=self.doctor, test_name=LabTestRequest.TestName.CBC,
+        )
+        LabTestResult.objects.create(request=older_request, recorded_by=lab_tech, result_text="older")
+
+        newer_request = LabTestRequest.objects.create(
+            patient=self.patient, requested_by=self.doctor, test_name=LabTestRequest.TestName.HBA1C,
+        )
+        LabTestResult.objects.create(request=newer_request, recorded_by=lab_tech, result_text="newer")
+
+        analytics = _build_analytics(self.patient)
+
+        self.assertEqual(analytics["most_recent_lab_result"]["result_text"], "newer")
+
+    def test_prescription_stays_none_model_does_not_exist(self):
+        # Prescription doesn't exist as a Django model anywhere in this repo
+        # yet - the key must still be present (stable shape for Member 4)
+        # with an honest None, never a fabricated value.
+        analytics = _build_analytics(self.patient)
+
         self.assertIn("most_recent_prescription", analytics)
-        self.assertIsNone(analytics["most_recent_lab_result"])
         self.assertIsNone(analytics["most_recent_prescription"])
 
     def test_existing_analytics_shape_preserved(self):

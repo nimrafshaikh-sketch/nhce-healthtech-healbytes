@@ -9,13 +9,13 @@ from apps.medications.models import Medication
 from apps.patients.models import Patient
 from apps.patients.serializers import PatientSerializer
 
-from .models import QRAccess
+from .models import QRScanLog
 from .serializers import (
     QRGenerateResponseSerializer,
     QRVerifyRequestSerializer,
     QRVerifyResponseSerializer,
 )
-from .tokens import InvalidQRToken, generate_qr_token, verify_qr_token
+from .tokens import InvalidQRToken, generate_qr_token, peek_patient_id_for_audit_log, verify_qr_token
 
 
 @extend_schema(tags=["QR"], summary="Generate a short-lived QR token for the logged-in patient",
@@ -29,9 +29,24 @@ class QRGenerateView(APIView):
         return Response(QRGenerateResponseSerializer(data).data)
 
 
-@extend_schema(tags=["QR"], summary="Verify a scanned QR token and return authorized patient history (Doctor only)",
+@extend_schema(tags=["QR"], summary="Verify a scanned QR token and return authorized patient history "
+                                       "(assigned Doctor only - unchanged scope; every scan attempt is logged, "
+                                       "success or failure)",
                request=QRVerifyRequestSerializer, responses=QRVerifyResponseSerializer)
 class QRVerifyView(APIView):
+    """Ownership rule stays exactly as originally approved: only the
+    patient's own assigned doctor may verify their QR code - NOT opened up
+    to Receptionist/Lab Tech (QR is clinical-history access, and Receptionist
+    has zero clinical-data access per the locked role matrix; Lab Tech's
+    access is scoped to assigned lab work only, not full patient history).
+
+    Every verification attempt is logged via QRScanLog regardless of outcome:
+    invalid/expired/malformed token, patient not found, wrong doctor, or
+    success. Previously the first two cases logged nothing at all - fixed
+    here by making QRScanLog.patient nullable (a genuinely undecodable token
+    has no knowable patient) and by best-effort recovering the patient from
+    an expired-but-genuine token for the log (see tokens.peek_patient_id_for_audit_log).
+    """
     permission_classes = [permissions.IsAuthenticated, IsDoctor]
 
     def post(self, request):
@@ -40,28 +55,33 @@ class QRVerifyView(APIView):
         token = serializer.validated_data["token"]
 
         try:
-            qr_access = verify_qr_token(token)
-            patient = qr_access.patient
+            patient_id = verify_qr_token(token)
         except InvalidQRToken as exc:
+            recovered_patient_id = peek_patient_id_for_audit_log(token)
+            patient = Patient.objects.filter(id=recovered_patient_id).first() if recovered_patient_id else None
+            QRScanLog.objects.create(patient=patient, scanned_by=request.user, success=False,
+                                      failure_reason=str(exc))
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
+        try:
+            patient = Patient.objects.get(id=patient_id)
+        except Patient.DoesNotExist:
+            QRScanLog.objects.create(patient=None, scanned_by=request.user, success=False,
+                                      failure_reason=f"Patient id {patient_id} not found.")
+            return Response({"detail": "Patient not found."}, status=status.HTTP_400_BAD_REQUEST)
+
         if patient.doctor_id != request.user.id:
-            qr_access.access_status = QRAccess.AccessStatus.DENIED
-            qr_access.accessed_by = getattr(request.user, "email", str(request.user))
-            qr_access.save(update_fields=["access_status", "accessed_by"])
+            QRScanLog.objects.create(patient=patient, scanned_by=request.user, success=False,
+                                      failure_reason="Doctor is not assigned to this patient.")
             return Response({"detail": "You are not the assigned doctor for this patient."},
                              status=status.HTTP_403_FORBIDDEN)
 
-        from django.utils import timezone
-        qr_access.access_status = QRAccess.AccessStatus.GRANTED
-        qr_access.accessed_by = getattr(request.user, "email", str(request.user))
-        qr_access.used_at = timezone.now()
-        qr_access.save(update_fields=["access_status", "accessed_by", "used_at"])
+        QRScanLog.objects.create(patient=patient, scanned_by=request.user, success=True)
 
         from apps.checkins.serializers import DailyCheckinSerializer
         from apps.medications.serializers import MedicationSerializer
 
-        medications = Medication.objects.filter(patient=patient, end_date__isnull=True)[:20]
+        medications = Medication.objects.filter(patient=patient, is_active=True)[:20]
         checkins = DailyCheckin.objects.filter(patient=patient).order_by("-checkin_date")[:14]
 
         data = {

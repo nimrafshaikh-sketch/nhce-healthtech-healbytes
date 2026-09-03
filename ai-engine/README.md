@@ -375,6 +375,98 @@ A pure, deterministic fallback is always available and requires no LLM SDK, netw
 - Plain engineering heuristic for care-coordination presentation; not a clinically validated model, diagnostic tool, treatment planner, or emergency triage system.
 - Explicitly out of scope: conversational chatbots, patient messaging, autonomous doctor communication, RAG, vector databases, or multi-agent orchestration.
 
+## Patient History Summary (`app/history/`, `/api/v1/history/summary`)
+
+A second, independent capability alongside `/analyze` — not part of the
+Phase 0-5 numbering above, and not touching any of it. `/analyze` assesses
+one current check-in; `/api/v1/history/summary` takes a patient's supplied
+history (check-ins, medications, lab tests, appointments, and medication
+reminder-dispatch logs) and returns a structured, deterministic clinical
+summary. Like `/analyze`, the AI Engine has no database access — every
+record the summary is computed from is supplied by the caller in the
+request body (see `app/history/schemas.py`).
+
+**Contract stability**: `PatientHistoryRequest` and `PatientHistorySummaryResponse`
+(`app/history/schemas.py`) are evolved additively only — new optional
+request fields with safe defaults, new always-or-conditionally-present
+response fields. Existing fields are never renamed, retyped, or removed
+without a genuine blocker, exactly like the `/analyze` contract.
+
+**Request** (`PatientHistoryRequest`): `patient_id`, `request_id`, optional
+`as_of` (defaults to current UTC time), and five history lists — `checkins`,
+`medications`, `lab_tests`, `appointments`, `medication_reminder_logs` — all
+defaulting to `[]`. Field names and enum values mirror the real backend
+serializers (`backend/apps/checkins`, `apps/medications`, `apps/labtests`,
+`apps/appointments`) exactly; no backend field is invented, and where the
+backend has no field (e.g. lab result units/reference ranges), none is
+added here either.
+
+**Response** (`PatientHistorySummaryResponse.history`, a `PatientHistory`):
+- `checkin_count`, `days_since_last_checkin`, `latest_checkin` — deterministic
+  counting and date arithmetic.
+- `symptom_trend` — reported-symptom-count trend (`improving`/`worsening`/
+  `stable`/`insufficient_data`) across chronologically ordered check-ins;
+  requires at least 2 check-ins.
+- `vital_trend` — per-vital-key directional comparison (`increasing`/
+  `decreasing`/`stable`) between the latest check-in and the most recent
+  prior reading of that same key.
+- `medications` — currently-active medications (`is_active` and within
+  `start_date`/`end_date` as of `as_of`, inclusive both ends — mirrors the
+  real `Medication.is_active_on()` model method exactly).
+- `latest_lab` — the most recent completed lab result. Selection is
+  two-tiered: any lab with a real `result_date` always outranks one with
+  only a `created_at` fallback, regardless of raw timestamp value; see
+  `LabTestRecord`'s docstring for why `created_at` must be the lab
+  *result's* recorded time, never the lab *request's* order time.
+- `open_follow_up` — the soonest still-**upcoming** appointment with status
+  `scheduled` or `confirmed` (`scheduled_at >= as_of`). A `scheduled`/
+  `confirmed` appointment already in the past is excluded, not selected —
+  it can never mask a genuine future appointment. `completed`/`cancelled`/
+  `no_show` are always excluded. `null` when nothing open is upcoming.
+- `medication_adherence` — see below.
+
+**Medication adherence** (`compute_medication_adherence` in
+`app/history/summary_service.py`) is the AI Engine's first real
+*computation* of a medication-adherence classification from data — Phase 3
+of `/analyze` (`medication_adherence.py`) only ever consumed an
+already-known `adherence_status`; nothing before this produced one.
+**Deterministic, engineering-heuristic, not clinically validated** — same
+disclaimer class as every other module in this codebase.
+
+- Input: `medication_reminder_logs`, mirroring the real backend's
+  `MedicationReminderLog` model (`scheduled_for`, `sent_at`, `acknowledged_at`)
+  — one row per reminder actually dispatched for a medication.
+- Every medication supplied is evaluated (not only currently-active ones) —
+  a just-ended medication's adherence history is still relevant context.
+- Per medication: `reminders_sent` and `reminders_acknowledged` are counted
+  from the matching reminder logs (`medication_id`); `adherence_rate =
+  acknowledged / sent`. Zero matching reminder logs → `unknown`, `rate =
+  null` — missing data is never penalized, exactly like the Phase 3
+  `/analyze` heuristic's treatment of `unknown` adherence.
+- Rate thresholds (hand-picked engineering defaults, not medically derived):
+  `rate >= 0.8` → `adherent`; `0.5 <= rate < 0.8` → `partially_adherent`;
+  `rate < 0.5` → `non_adherent`.
+- `overall_status` is a worst-observed-status rollup across all evaluated
+  medications: any `non_adherent` medication makes the overall status
+  `non_adherent` regardless of how many others are fine; else any
+  `partially_adherent` makes it `partially_adherent`; else `adherent` if at
+  least one medication was evaluable and fine; else `unknown`.
+- Reuses the existing, fixed `MedicationAdherenceStatus` vocabulary from
+  `app/schemas/common.py` (the same one Phase 3 of `/analyze` already
+  defines) rather than introducing new categories.
+
+**Backward compatibility**: `medication_reminder_logs` on the request and
+`medication_adherence` on the response were both added after the endpoint's
+initial release, purely additively. A caller that never sends
+`medication_reminder_logs` still gets a valid `200` with `medication_adherence
+.overall_status == "unknown"` for every medication — no existing integration
+breaks.
+
+**Out of scope** (not implemented here, for the same reasons as every other
+module in this codebase): no RAG, no vector database, no external medical
+API, no ML/LLM-derived adherence prediction, no medication-safety judgment,
+no diagnosis, no automated notification delivery, no database access.
+
 ## Validation
 
 All validation is enforced by Pydantic v2 models: required fields, strict

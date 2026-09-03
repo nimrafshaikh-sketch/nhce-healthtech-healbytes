@@ -261,3 +261,101 @@ export const initialAlerts = [
   { id: "alert_4", patientId: "pat_vikram", patientName: "Vikram Singh", avatarInitials: "VS", riskLevel: "MEDIUM", riskScore: 62, message: "Fatigue pattern reported across two consecutive check-ins.", detectedAt: hoursAgo(6), status: "ACTIVE" },
   { id: "alert_5", patientId: "pat_arjun", patientName: "Arjun Mehta", avatarInitials: "AM", riskLevel: "LOW", riskScore: 24, message: "Mild soreness at incision site, resolved after review.", detectedAt: daysAgo(3), status: "RESOLVED" },
 ];
+
+export const demoReceptionist = {
+  id: "rec_1",
+  role: "RECEPTIONIST",
+  name: "Anita Desai",
+  email: "reception@healbytes.demo",
+  avatarInitials: "AD",
+};
+
+export const demoLabTech = {
+  id: "lab_1",
+  role: "LAB_TECH",
+  name: "Vikram Tech",
+  email: "lab@healbytes.demo",
+  avatarInitials: "VT",
+};
+
+export const initialPrescriptions = [
+  {
+    id: "presc_1",
+    patientId: "pat_rahul",
+    doctorId: "doc_1",
+    date: daysAgo(1),
+    medications: [
+      { name: "Aspirin", dosage: "75 mg", frequency: "Once daily", duration: "30 days", instructions: "After breakfast" },
+      { name: "Atorvastatin", dosage: "20 mg", frequency: "Once daily", duration: "30 days", instructions: "After dinner" }
+    ],
+    status: "ACTIVE"
+  }
+];
+
+export const initialLabRequests = [
+  {
+    id: "req_1",
+    patientId: "pat_priya",
+    patientName: "Priya Nair",
+    doctorId: "doc_1",
+    doctorName: "Dr. Sarah Chen",
+    testType: "HbA1c",
+    status: "REQUESTED",
+    createdAt: hoursAgo(2),
+    expectedBy: "Today, 5:00 PM"
+  },
+  {
+    id: "req_2",
+    patientId: "pat_rahul",
+    patientName: "Rahul Sharma",
+    doctorId: "doc_1",
+    doctorName: "Dr. Sarah Chen",
+    testType: "CBC",
+    status: "IN_PROGRESS",
+    createdAt: hoursAgo(5),
+    expectedBy: "Today, 2:00 PM"
+  }
+];
+
+export const initialLabResults = [
+  {
+    id: "res_1",
+    patientId: "pat_meera",
+    doctorId: "doc_1",
+    testType: "Lipid Panel",
+    status: "COMPLETED",
+    releaseStatus: "RELEASED",
+    date: daysAgo(3),
+    values: [
+      { name: "Total Cholesterol", value: "190", unit: "mg/dL", referenceRange: "< 200", flag: "NORMAL" },
+      { name: "LDL", value: "110", unit: "mg/dL", referenceRange: "< 100", flag: "HIGH" },
+      { name: "HDL", value: "55", unit: "mg/dL", referenceRange: "> 50", flag: "NORMAL" }
+    ],
+    aiAnalysis: "Cholesterol levels are borderline. Suggest continued monitoring and dietary management."
+  }
+];
+
+export const initialDocuments = [
+  {
+    id: "doc_1",
+    patientId: "pat_rahul",
+    documentType: "DISCHARGE_SUMMARY",
+    uploadedBy: "Dr. Sarah Chen",
+    date: daysAgo(9),
+    fileName: "discharge_summary_rahul.pdf",
+    status: "PROCESSED"
+  }
+];
+
+export const initialAppointments = [
+  {
+    id: "appt_1",
+    patientId: "pat_priya",
+    doctorId: "doc_1",
+    doctorName: "Dr. Sarah Chen",
+    date: daysAgo(-3),
+    time: "10:30 AM",
+    reason: "Insulin dosage review",
+    status: "CONFIRMED"
+  }
+];

@@ -1,27 +1,40 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
-from django.conf import settings
 
 from apps.core.models import TimeStampedModel
 
 
 class User(AbstractUser, TimeStampedModel):
-    """Custom user for both Doctor and Patient accounts."""
+    """Custom user for Doctor, Patient, Receptionist, and Lab Technician accounts.
+
+    Doctor: self-registers via apps.accounts.views.DoctorRegisterView.
+    Patient: created at invitation-code redemption time, not directly -
+    see apps.invitations.
+    Receptionist / Lab Technician: internal clinic staff, no public
+    registration endpoint - created via Django admin only (approved scope
+    for this build; revisit if a self-service or admin-created-by-doctor
+    flow is needed later).
+    """
 
     class Role(models.TextChoices):
         DOCTOR = "doctor", "Doctor"
         PATIENT = "patient", "Patient"
+        RECEPTIONIST = "receptionist", "Receptionist"
+        LAB_TECH = "lab_tech", "Lab Technician"
 
-    role = models.CharField(max_length=10, choices=Role.choices)
-    name = models.CharField(max_length=255)
-    phone = models.CharField(max_length=20, blank=True)
+    role = models.CharField(max_length=15, choices=Role.choices)
+    phone_number = models.CharField(max_length=20, blank=True)
+
+    # Doctor-only professional fields (blank for patients)
+    specialization = models.CharField(max_length=100, blank=True)
+    license_number = models.CharField(max_length=100, blank=True)
 
     email = models.EmailField(unique=True)
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS = ["username", "name"]
+    REQUIRED_FIELDS = ["username"]
 
     def __str__(self):
-        return f"{self.name or self.username} ({self.role})"
+        return f"{self.get_full_name() or self.username} ({self.role})"
 
     @property
     def is_doctor(self):
@@ -31,12 +44,10 @@ class User(AbstractUser, TimeStampedModel):
     def is_patient(self):
         return self.role == self.Role.PATIENT
 
+    @property
+    def is_receptionist(self):
+        return self.role == self.Role.RECEPTIONIST
 
-class Doctor(TimeStampedModel):
-    """Doctor profile."""
-    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="doctor_profile")
-    specialization = models.CharField(max_length=100, blank=True)
-    hospital_name = models.CharField(max_length=100, blank=True)
-
-    def __str__(self):
-        return f"Dr. {self.user.name or self.user.username}"
+    @property
+    def is_lab_tech(self):
+        return self.role == self.Role.LAB_TECH

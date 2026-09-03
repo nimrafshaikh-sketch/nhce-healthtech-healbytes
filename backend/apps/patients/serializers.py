@@ -1,18 +1,21 @@
 from rest_framework import serializers
 
+from apps.accounts.models import User
+
 from .models import Patient
 
 
 class PatientSerializer(serializers.ModelSerializer):
-    doctor_name = serializers.CharField(source="doctor.user.name", read_only=True)
+    doctor_name = serializers.CharField(source="doctor.get_full_name", read_only=True)
     is_linked = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Patient
         fields = [
-            "id", "doctor", "doctor_name", "user", "name", "date_of_birth",
-            "mobile_number", "caretaker_name", "caretaker_email",
-            "is_linked", "created_at", "updated_at",
+            "id", "doctor", "doctor_name", "user", "full_name", "date_of_birth",
+            "gender", "phone_number", "address", "medical_notes",
+            "caretaker_name", "caretaker_relationship", "caretaker_phone_number",
+            "caretaker_email", "is_active", "is_linked", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "doctor", "user", "is_linked", "created_at", "updated_at"]
 
@@ -25,11 +28,55 @@ class PatientCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Patient
         fields = [
-            "id", "name", "date_of_birth", "mobile_number",
-            "caretaker_name", "caretaker_email",
+            "id", "full_name", "date_of_birth", "gender", "phone_number", "address",
+            "medical_notes", "caretaker_name", "caretaker_relationship",
+            "caretaker_phone_number", "caretaker_email",
         ]
         read_only_fields = ["id"]
 
     def create(self, validated_data):
-        validated_data["doctor"] = self.context["request"].user.doctor_profile
+        validated_data["doctor"] = self.context["request"].user
         return super().create(validated_data)
+
+
+class AdministrativePatientSerializer(serializers.ModelSerializer):
+    """Receptionist-facing patient view. Excludes `medical_notes` (clinical
+    content) - receptionist is an administrative actor only, per the
+    locked role matrix. Everything else on Patient is fair game (contact
+    info, caretaker details, assigned doctor, linked-account status).
+    """
+    doctor_name = serializers.CharField(source="doctor.get_full_name", read_only=True)
+    is_linked = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Patient
+        fields = [
+            "id", "doctor", "doctor_name", "user", "full_name", "date_of_birth",
+            "gender", "phone_number", "address",
+            "caretaker_name", "caretaker_relationship", "caretaker_phone_number",
+            "caretaker_email", "is_active", "is_linked", "created_at", "updated_at",
+        ]
+        read_only_fields = ["id", "user", "is_linked", "created_at", "updated_at"]
+
+
+class ReceptionistPatientCreateSerializer(serializers.ModelSerializer):
+    """Used by a Receptionist to add a new patient + caretaker details.
+    Unlike PatientCreateSerializer (doctor's own self-service add, where
+    doctor=request.user is implicit), the receptionist must explicitly pick
+    which doctor the patient is assigned to - see apps.patients.views.
+    """
+    doctor = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(role=User.Role.DOCTOR),
+    )
+
+    class Meta:
+        model = Patient
+        # No medical_notes here either - receptionist is an administrative
+        # actor and shouldn't be entering clinical content any more than
+        # they can read it back later (AdministrativePatientSerializer).
+        fields = [
+            "id", "doctor", "full_name", "date_of_birth", "gender", "phone_number", "address",
+            "caretaker_name", "caretaker_relationship",
+            "caretaker_phone_number", "caretaker_email",
+        ]
+        read_only_fields = ["id"]
