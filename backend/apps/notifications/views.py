@@ -45,7 +45,7 @@ class EmailNotificationLogListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated, IsDoctor]
 
     def get_queryset(self):
-        qs = EmailNotificationLog.objects.filter(patient__doctor=self.request.user)
+        qs = EmailNotificationLog.objects.filter(patient__doctor=self.request.user.doctor_profile)
         patient_id = self.request.query_params.get("patient")
         if patient_id:
             qs = qs.filter(patient_id=patient_id)

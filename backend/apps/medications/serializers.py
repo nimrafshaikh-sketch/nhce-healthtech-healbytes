@@ -1,28 +1,19 @@
 from rest_framework import serializers
 
-from .models import Medication, MedicationReminderLog
+from .models import Medication, MedicationReminder, MedicationAdherence
 
 
 class MedicationSerializer(serializers.ModelSerializer):
-    patient_name = serializers.CharField(source="patient.full_name", read_only=True)
+    patient_name = serializers.CharField(source="patient.name", read_only=True)
 
     class Meta:
         model = Medication
         fields = [
-            "id", "patient", "patient_name", "prescribed_by", "name", "dosage",
-            "frequency", "instructions", "start_date", "end_date",
-            "reminder_times", "reminders_enabled", "is_active",
+            "id", "patient", "patient_name", "prescribed_by", "medicine_name", "dosage",
+            "frequency_per_day", "instructions", "start_date", "end_date",
             "created_at", "updated_at",
         ]
         read_only_fields = ["id", "prescribed_by", "created_at", "updated_at"]
-
-    def validate_reminder_times(self, value):
-        import re
-        pattern = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
-        for t in value:
-            if not isinstance(t, str) or not pattern.match(t):
-                raise serializers.ValidationError(f'"{t}" is not a valid "HH:MM" 24h time.')
-        return value
 
     def validate(self, attrs):
         start = attrs.get("start_date", getattr(self.instance, "start_date", None))
@@ -32,8 +23,15 @@ class MedicationSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class MedicationReminderLogSerializer(serializers.ModelSerializer):
+class MedicationReminderSerializer(serializers.ModelSerializer):
     class Meta:
-        model = MedicationReminderLog
-        fields = ["id", "medication", "scheduled_for", "sent_at", "acknowledged_at"]
-        read_only_fields = fields
+        model = MedicationReminder
+        fields = ["id", "medication", "reminder_time", "is_active"]
+        read_only_fields = ["id"]
+
+
+class MedicationAdherenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MedicationAdherence
+        fields = ["id", "medication", "patient", "scheduled_time", "taken_at", "status"]
+        read_only_fields = ["id", "patient", "scheduled_time"]
