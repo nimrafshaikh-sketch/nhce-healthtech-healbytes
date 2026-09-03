@@ -1,0 +1,287 @@
+import React, { useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { ArrowLeft, Plus, CalendarPlus } from "lucide-react";
+import Topbar from "../../components/layout/Topbar";
+import RiskBadge from "../../components/healthcare/RiskBadge";
+import RiskScore from "../../components/healthcare/RiskScore";
+import Avatar from "../../components/ui/Avatar";
+import Button from "../../components/ui/Button";
+import CheckinSummary from "../../components/healthcare/CheckinSummary";
+import MedicationCard from "../../components/healthcare/MedicationCard";
+import EmptyState from "../../components/ui/EmptyState";
+import Modal from "../../components/ui/Modal";
+import Input from "../../components/ui/Input";
+import MedicationFormModal from "../../components/healthcare/MedicationFormModal";
+import { useData } from "../../context/DataContext";
+import { formatRelativeTime, formatDayLabel, formatTime } from "../../utils/dateUtils";
+
+const TABS = ["Overview", "Check-ins", "Medications", "History", "Analytics"];
+
+export default function PatientProfile() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const {
+    getPatientById,
+    getCheckinsForPatient,
+    getMedicationsForPatient,
+    addMedication,
+    markMedicationStatus,
+    updatePatient,
+  } = useData();
+
+  const patient = getPatientById(id);
+  const checkins = getCheckinsForPatient(id);
+  const medications = getMedicationsForPatient(id);
+
+  const [tab, setTab] = useState("Overview");
+  const [medModalOpen, setMedModalOpen] = useState(false);
+  const [followUpOpen, setFollowUpOpen] = useState(false);
+  const [followUpForm, setFollowUpForm] = useState({ date: "", time: "10:30", reason: "" });
+
+  if (!patient) {
+    return (
+      <>
+        <Topbar title="Patient not found" />
+        <main className="flex-1 px-6 py-6">
+          <EmptyState title="We couldn't find this patient" description="They may have been removed." />
+        </main>
+      </>
+    );
+  }
+
+  function handleScheduleFollowUp(e) {
+    e.preventDefault();
+    if (!followUpForm.date) return;
+    const date = new Date(`${followUpForm.date}T${followUpForm.time || "10:00"}`);
+    updatePatient(patient.id, {
+      nextFollowUp: { doctorName: "Dr. Sarah Chen", date, reason: followUpForm.reason || "Follow-up review" },
+    });
+    setFollowUpOpen(false);
+  }
+
+  return (
+    <>
+      <Topbar title={patient.name} subtitle={patient.condition} />
+      <main className="flex-1 px-6 py-6">
+        <button
+          onClick={() => navigate("/doctor/patients")}
+          className="mb-4 flex items-center gap-1.5 text-sm font-medium text-ink-500 hover:text-ink-900"
+        >
+          <ArrowLeft size={15} /> Patients
+        </button>
+
+        <div className="flex flex-col gap-4 rounded-2xl border border-ink-300/15 bg-white p-6 shadow-card sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
+            <Avatar name={patient.name} initials={patient.avatarInitials} size="lg" />
+            <div>
+              <h1 className="text-lg font-semibold text-ink-900">{patient.name}</h1>
+              <p className="text-sm text-ink-500">
+                {patient.age} years · {patient.condition}
+              </p>
+              <div className="mt-2 flex items-center gap-2">
+                <RiskBadge level={patient.riskLevel} />
+                <span className="text-xs text-ink-400">AI Score {patient.riskScore}</span>
+              </div>
+              <p className="mt-1 text-xs text-ink-300">
+                Last check-in: {patient.lastCheckIn ? formatRelativeTime(patient.lastCheckIn) : "No check-ins yet"}
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Button variant="secondary" leftIcon={<Plus size={15} />} onClick={() => setMedModalOpen(true)}>
+              Add Medication
+            </Button>
+            <Button variant="secondary" leftIcon={<CalendarPlus size={15} />} onClick={() => setFollowUpOpen(true)}>
+              Schedule Follow-up
+            </Button>
+          </div>
+        </div>
+
+        <div className="no-scrollbar mt-6 flex gap-1 overflow-x-auto border-b border-ink-300/15">
+          {TABS.map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition ${
+                tab === t ? "border-brand-700 text-brand-800" : "border-transparent text-ink-500 hover:text-ink-800"
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-6">
+          {tab === "Overview" && (
+            <div className="grid gap-6 lg:grid-cols-3">
+              <div className="rounded-2xl border border-ink-300/15 bg-white p-6 shadow-card lg:col-span-2">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-500">Current AI Assessment</h2>
+                <div className="mt-4 flex items-start gap-5">
+                  <RiskScore score={patient.riskScore} level={patient.riskLevel} size={84} />
+                  <div className="flex-1">
+                    <RiskBadge level={patient.riskLevel} />
+                    <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-ink-300">Reason</p>
+                    <p className="mt-1 text-sm text-ink-800">{patient.reason}</p>
+                    <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-ink-300">Recommended Action</p>
+                    <p className="mt-1 text-sm text-ink-800">{patient.followUpAction}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-ink-300/15 bg-white p-6 shadow-card">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-500">Medication Adherence</h2>
+                <p className="mt-3 text-2xl font-bold text-ink-900">{patient.medicationAdherencePct}%</p>
+                <p className="text-xs text-ink-500">This week</p>
+                <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-ink-900/5">
+                  <div
+                    className="h-full rounded-full bg-brand-600"
+                    style={{ width: `${patient.medicationAdherencePct}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-ink-300/15 bg-white p-6 shadow-card lg:col-span-2">
+                <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-500">Recent Check-ins</h2>
+                {checkins.length ? (
+                  <div className="space-y-3">
+                    {checkins.slice(0, 3).map((c) => (
+                      <CheckinSummary key={c.id} checkin={c} />
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState title="No check-ins yet" description="They will appear here once the patient checks in." />
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-ink-300/15 bg-white p-6 shadow-card">
+                <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-500">Medical Summary</h2>
+                <dl className="space-y-2.5 text-sm">
+                  <div>
+                    <dt className="text-xs text-ink-400">Diagnosis</dt>
+                    <dd className="text-ink-800">{patient.diagnosis}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-ink-400">Allergies</dt>
+                    <dd className="text-ink-800">{patient.allergies}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-ink-400">Caretaker</dt>
+                    <dd className="text-ink-800">
+                      {patient.caretaker?.name} · {patient.caretaker?.relationship} · {patient.caretaker?.phone}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+            </div>
+          )}
+
+          {tab === "Check-ins" &&
+            (checkins.length ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {checkins.map((c) => (
+                  <CheckinSummary key={c.id} checkin={c} />
+                ))}
+              </div>
+            ) : (
+              <EmptyState title="No check-ins yet" description="Daily check-ins will appear here." />
+            ))}
+
+          {tab === "Medications" &&
+            (medications.length ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {medications.map((m) => (
+                  <MedicationCard
+                    key={m.id}
+                    medication={m}
+                    onMarkTaken={() => markMedicationStatus(m.id, "TAKEN")}
+                    onMarkMissed={() => markMedicationStatus(m.id, "MISSED")}
+                  />
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                title="No medications yet"
+                description="Add a medication to get started."
+                action={
+                  <Button size="sm" onClick={() => setMedModalOpen(true)}>
+                    Add Medication
+                  </Button>
+                }
+              />
+            ))}
+
+          {tab === "History" && (
+            <div className="space-y-1">
+              {checkins.length ? (
+                checkins.map((c, i) => (
+                  <div key={c.id} className="flex gap-3">
+                    <div className="flex flex-col items-center">
+                      <span className="mt-1.5 h-2 w-2 rounded-full bg-brand-500" />
+                      {i !== checkins.length - 1 && <span className="mt-1 w-px flex-1 bg-ink-300/20" />}
+                    </div>
+                    <div className="pb-4">
+                      <p className="text-xs text-ink-300">
+                        {formatDayLabel(c.date)} · {formatTime(c.date)}
+                      </p>
+                      <p className="text-sm font-medium text-ink-900">Daily Check-in</p>
+                      <div className="mt-1">
+                        <RiskBadge level={c.riskLevel} size="sm" />
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <EmptyState title="No history yet" description="Patient activity will build a timeline here." />
+              )}
+            </div>
+          )}
+
+          {tab === "Analytics" && (
+            <EmptyState
+              title="Analytics coming into focus"
+              description="Trend charts for this patient will appear here once more check-ins are recorded."
+            />
+          )}
+        </div>
+      </main>
+
+      <MedicationFormModal
+        open={medModalOpen}
+        onClose={() => setMedModalOpen(false)}
+        onSubmit={(form) => addMedication(patient.id, form)}
+      />
+
+      <Modal open={followUpOpen} onClose={() => setFollowUpOpen(false)} title="Schedule Follow-up">
+        <form onSubmit={handleScheduleFollowUp} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="Date"
+              type="date"
+              required
+              value={followUpForm.date}
+              onChange={(e) => setFollowUpForm((f) => ({ ...f, date: e.target.value }))}
+            />
+            <Input
+              label="Time"
+              type="time"
+              value={followUpForm.time}
+              onChange={(e) => setFollowUpForm((f) => ({ ...f, time: e.target.value }))}
+            />
+          </div>
+          <Input
+            label="Reason"
+            placeholder="e.g. Post-op review"
+            value={followUpForm.reason}
+            onChange={(e) => setFollowUpForm((f) => ({ ...f, reason: e.target.value }))}
+          />
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="secondary" onClick={() => setFollowUpOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit">Schedule</Button>
+          </div>
+        </form>
+      </Modal>
+    </>
+  );
+}
