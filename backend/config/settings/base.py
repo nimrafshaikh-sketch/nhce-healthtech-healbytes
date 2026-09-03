@@ -6,6 +6,7 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+from celery.schedules import crontab
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -38,12 +39,12 @@ INSTALLED_APPS = [
     "apps.core",
     "apps.accounts",
     "apps.patients",
-    "apps.invitations",
     "apps.medications",
     "apps.checkins",
     "apps.alerts",
     "apps.qr",
     "apps.notifications",
+    "apps.medical_history",
 ]
 
 MIDDLEWARE = [
@@ -146,6 +147,14 @@ CELERY_BEAT_SCHEDULE = {
     "dispatch-due-medication-reminders": {
         "task": "apps.medications.tasks.dispatch_due_medication_reminders",
         "schedule": 60.0,  # every minute
+    },
+    "flag-missing-daily-checkins": {
+        "task": "apps.checkins.tasks.flag_missing_daily_checkins",
+        # Once daily, in the evening - gives patients the full day to submit
+        # before being flagged as awaiting data. See apps.checkins.tasks
+        # docstring: never assigns a risk level, only raises a doctor-facing
+        # notification.
+        "schedule": crontab(hour=21, minute=0),
     },
 }
 
