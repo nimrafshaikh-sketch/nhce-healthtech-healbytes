@@ -6,7 +6,7 @@ server-side when a doctor scans it. Signed with SIMPLE_JWT's signing key via
 PyJWT directly (kept separate from login access/refresh tokens - this token
 has a single narrow purpose and a much shorter lifetime).
 
-Expiry default: settings.QR_TOKEN_EXPIRY_MINUTES (5 min).
+Expiry default: settings.QR_TOKEN_EXPIRY_MINUTES (15 min).
 """
 import jwt
 from django.conf import settings
@@ -44,3 +44,23 @@ def verify_qr_token(token: str) -> int:
     if payload.get("type") != QR_TOKEN_TYPE:
         raise InvalidQRToken("Not a valid patient QR token.")
     return payload["patient_id"]
+
+
+def peek_patient_id_for_audit_log(token: str):
+    """Best-effort patient_id extraction for AUDIT LOGGING ONLY when a token
+    has expired - never use this for an authorization decision. The
+    signature is still verified (so we know the token really was issued by
+    this server for this patient); only the expiry check is skipped, so an
+    expired-but-genuine scan can still be attributed to a patient in
+    QRScanLog instead of logging a blank/unknown row.
+
+    Returns None if the token isn't decodable at all (bad signature, wrong
+    type, malformed) - those cases genuinely have no known patient to log.
+    """
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"], options={"verify_exp": False})
+    except jwt.InvalidTokenError:
+        return None
+    if payload.get("type") != QR_TOKEN_TYPE:
+        return None
+    return payload.get("patient_id")

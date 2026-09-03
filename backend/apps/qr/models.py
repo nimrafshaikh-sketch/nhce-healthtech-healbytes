@@ -8,7 +8,12 @@ class QRScanLog(TimeStampedModel):
     who accessed history via QR scan and when. Not the token itself (the
     token is a signed JWT, never persisted - see apps.qr.tokens).
     """
-    patient = models.ForeignKey("patients.Patient", on_delete=models.CASCADE, related_name="qr_scan_logs")
+    # Nullable: a scan of a malformed/tampered/wrong-type token has no
+    # knowable patient at all, but must still be logged (every scan
+    # attempt is recorded, success or failure - see apps.qr.views.QRVerifyView).
+    patient = models.ForeignKey(
+        "patients.Patient", on_delete=models.CASCADE, related_name="qr_scan_logs", null=True, blank=True,
+    )
     scanned_by = models.ForeignKey(
         "accounts.User", on_delete=models.SET_NULL, null=True, related_name="qr_scans_performed",
     )
