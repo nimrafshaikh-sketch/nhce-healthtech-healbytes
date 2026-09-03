@@ -1,0 +1,325 @@
+"""Phase 2 deterministic patient-history summary computation.
+
+Every value here is derived by explicit, documented calculation over the
+records supplied in the request - counting, sorting, date arithmetic, and
+simple monotonic-sequence comparison. Nothing is inferred by an LLM or ML
+model, and no field is fabricated: where the supplied data can't support a
+value (no check-ins, no lab results with a status of completed, etc.) the
+corresponding response field is explicitly `None` / empty, never guessed.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import List, Optional
+
+from app.history.schemas import (
+    AppointmentRecord,
+    AppointmentStatus,
+    CheckinRecord,
+    LabTestRecord,
+    LabTestStatus,
+    LatestCheckinSummary,
+    LatestLabSummary,
+    MedicationRecord,
+    MedicationSummary,
+    OpenFollowUpSummary,
+    PatientHistory,
+    PatientHistoryRequest,
+    PatientHistorySummaryResponse,
+    SymptomTrend,
+    SymptomTrendSummary,
+    TREND_DISCLAIMER,
+    TrendDirection,
+    VitalTrendEntry,
+    VitalTrendSummary,
+)
+
+MIN_CHECKINS_FOR_SYMPTOM_TREND = 2
+"""Fewer than this many check-ins is insufficient evidence for a directional
+symptom-count trend - mirrors the evidence-gating principle already used by
+the Phase 1 historical-trend heuristic (see `app/analysis/trend_detector.py`),
+applied independently here to the real check-in fields Phase 2 receives."""
+
+# --- Ordering helpers ---------------------------------------------------------
+
+
+def _sorted_checkins(checkins: List[CheckinRecord]) -> List[CheckinRecord]:
+    """Chronological order (oldest first), tie-broken by id for determinism
+    when two check-ins share a date."""
+
+    return sorted(checkins, key=lambda c: (c.checkin_date, c.id))
+
+
+# --- Check-in count / recency --------------------------------------------------
+
+
+def compute_checkin_count(checkins: List[CheckinRecord]) -> int:
+    return len(checkins)
+
+
+def latest_checkin_record(checkins: List[CheckinRecord]) -> Optional[CheckinRecord]:
+    if not checkins:
+        return None
+    return _sorted_checkins(checkins)[-1]
+
+
+def build_latest_checkin_summary(checkins: List[CheckinRecord]) -> Optional[LatestCheckinSummary]:
+    latest = latest_checkin_record(checkins)
+    if latest is None:
+        return None
+    return LatestCheckinSummary(
+        id=latest.id,
+        checkin_date=latest.checkin_date,
+        symptoms=list(latest.symptoms),
+        mood=latest.mood,
+        pain_level=latest.pain_level,
+        ai_risk_level=latest.ai_risk_level,
+    )
+
+
+def compute_days_since_last_checkin(
+    checkins: List[CheckinRecord], as_of: datetime
+) -> Optional[int]:
+    latest = latest_checkin_record(checkins)
+    if latest is None:
+        return None
+    return (as_of.date() - latest.checkin_date).days
+
+
+# --- Symptom trend --------------------------------------------------------------
+
+
+def compute_symptom_trend(checkins: List[CheckinRecord]) -> SymptomTrendSummary:
+    """Compare reported-symptom counts across chronologically ordered
+    check-ins. Strictly increasing counts -> 'worsening'; strictly
+    decreasing -> 'improving'; anything else (including flat) -> 'stable'.
+    Fewer than `MIN_CHECKINS_FOR_SYMPTOM_TREND` check-ins -> 'insufficient_data'.
+    """
+
+    observed = len(checkins)
+    if observed < MIN_CHECKINS_FOR_SYMPTOM_TREND:
+        return SymptomTrendSummary(
+            trend=SymptomTrend.INSUFFICIENT_DATA,
+            observed_checkins=observed,
+            detail=(
+                f"Observed {observed} check-in(s); at least "
+                f"{MIN_CHECKINS_FOR_SYMPTOM_TREND} are required for a symptom-count "
+                f"trend. {TREND_DISCLAIMER}"
+            ),
+        )
+
+    ordered = _sorted_checkins(checkins)
+    counts = [len(c.symptoms) for c in ordered]
+    deltas = [later - earlier for earlier, later in zip(counts, counts[1:])]
+
+    if all(delta > 0 for delta in deltas):
+        trend = SymptomTrend.WORSENING
+    elif all(delta < 0 for delta in deltas):
+        trend = SymptomTrend.IMPROVING
+    else:
+        trend = SymptomTrend.STABLE
+
+    previous_count = counts[-2]
+    latest_count = counts[-1]
+
+    return SymptomTrendSummary(
+        trend=trend,
+        observed_checkins=observed,
+        latest_symptom_count=latest_count,
+        previous_symptom_count=previous_count,
+        detail=(
+            f"Reported-symptom count sequence across {observed} check-in(s): "
+            f"{counts}. Engineering inference: '{trend.value}'. {TREND_DISCLAIMER}"
+        ),
+    )
+
+
+# --- Vital trend ------------------------------------------------------------------
+
+
+def compute_vital_trend(checkins: List[CheckinRecord]) -> VitalTrendSummary:
+    """For each vital key present on the most recent check-in, compare it to
+    the same key's most recent prior value (searching backward through
+    chronological history). A key with no prior reading is omitted, not
+    guessed at."""
+
+    checkins_with_vitals = [c for c in checkins if c.vitals]
+    ordered = _sorted_checkins(checkins_with_vitals)
+
+    if len(ordered) < 2:
+        return VitalTrendSummary(
+            observed_checkins_with_vitals=len(ordered),
+            vitals={},
+            detail=(
+                f"Observed {len(ordered)} check-in(s) with recorded vitals; at "
+                f"least 2 are required to compute a per-vital trend. {TREND_DISCLAIMER}"
+            ),
+        )
+
+    latest = ordered[-1]
+    history_before_latest = ordered[:-1]
+
+    entries = {}
+    for key, latest_value in latest.vitals.items():
+        previous_value = None
+        for prior in reversed(history_before_latest):
+            if key in prior.vitals:
+                previous_value = prior.vitals[key]
+                break
+        if previous_value is None:
+            continue
+
+        delta = latest_value - previous_value
+        if delta > 0:
+            direction = TrendDirection.INCREASING
+        elif delta < 0:
+            direction = TrendDirection.DECREASING
+        else:
+            direction = TrendDirection.STABLE
+
+        entries[key] = VitalTrendEntry(
+            latest_value=latest_value,
+            previous_value=previous_value,
+            delta=delta,
+            trend=direction,
+        )
+
+    if not entries:
+        detail = (
+            f"Observed {len(ordered)} check-in(s) with recorded vitals, but no "
+            "vital key on the latest check-in has a prior recorded value to "
+            f"compare against. {TREND_DISCLAIMER}"
+        )
+    else:
+        detail = (
+            f"Compared the latest check-in's vitals against the most recent "
+            f"prior reading for each key, across {len(ordered)} check-in(s) with "
+            f"recorded vitals. {TREND_DISCLAIMER}"
+        )
+
+    return VitalTrendSummary(
+        observed_checkins_with_vitals=len(ordered),
+        vitals=entries,
+        detail=detail,
+    )
+
+
+# --- Medications --------------------------------------------------------------
+
+
+def _is_current(medication: MedicationRecord, as_of_date) -> bool:
+    if not medication.is_active:
+        return False
+    if medication.start_date > as_of_date:
+        return False
+    if medication.end_date is not None and medication.end_date < as_of_date:
+        return False
+    return True
+
+
+def compute_current_medications(
+    medications: List[MedicationRecord], as_of: datetime
+) -> List[MedicationSummary]:
+    as_of_date = as_of.date()
+    current = [m for m in medications if _is_current(m, as_of_date)]
+    # Deterministic order: name, then id.
+    current.sort(key=lambda m: (m.name, m.id))
+    return [
+        MedicationSummary(
+            id=m.id,
+            name=m.name,
+            dosage=m.dosage,
+            frequency=m.frequency,
+            is_current=True,
+            start_date=m.start_date,
+            end_date=m.end_date,
+        )
+        for m in current
+    ]
+
+
+# --- Latest lab result --------------------------------------------------------
+
+
+def _lab_sort_key(lab: LabTestRecord):
+    """Most-recent-first key: prefer result_date, fall back to created_at,
+    then id, so ordering is fully deterministic even with missing dates."""
+
+    reference = lab.result_date or lab.created_at
+    # None sorts before any real datetime when reversed by using a tuple
+    # with an explicit "has_date" flag.
+    return (reference is not None, reference, lab.id)
+
+
+def compute_latest_lab(lab_tests: List[LabTestRecord]) -> Optional[LatestLabSummary]:
+    completed_with_result = [
+        lab
+        for lab in lab_tests
+        if lab.status == LabTestStatus.COMPLETED and lab.result_text
+    ]
+    if not completed_with_result:
+        return None
+
+    latest = max(completed_with_result, key=_lab_sort_key)
+    return LatestLabSummary(
+        id=latest.id,
+        test_name=latest.test_name,
+        status=latest.status,
+        result_text=latest.result_text,
+        result_date=latest.result_date,
+        reviewed=latest.reviewed_at is not None,
+    )
+
+
+# --- Open follow-up / appointment ---------------------------------------------
+
+_OPEN_APPOINTMENT_STATUSES = {AppointmentStatus.SCHEDULED, AppointmentStatus.CONFIRMED}
+
+
+def compute_open_follow_up(appointments: List[AppointmentRecord]) -> Optional[OpenFollowUpSummary]:
+    """The soonest appointment still in an open state (scheduled or
+    confirmed) - status is authoritative here, not the date, since a
+    past-dated appointment that's still 'scheduled' is exactly the kind of
+    stale follow-up this field exists to surface."""
+
+    open_appointments = [a for a in appointments if a.status in _OPEN_APPOINTMENT_STATUSES]
+    if not open_appointments:
+        return None
+
+    soonest = min(open_appointments, key=lambda a: (a.scheduled_at, a.id))
+    return OpenFollowUpSummary(
+        id=soonest.id,
+        scheduled_at=soonest.scheduled_at,
+        status=soonest.status,
+        reason=soonest.reason,
+    )
+
+
+# --- Top-level orchestration ---------------------------------------------------
+
+
+def build_history_summary(request: PatientHistoryRequest) -> PatientHistorySummaryResponse:
+    """Compose the full Phase 2 response from a validated request. Pure
+    function: no I/O, no randomness, no clock reads beyond the supplied or
+    defaulted `as_of`."""
+
+    as_of = request.as_of or datetime.now(timezone.utc)
+
+    history = PatientHistory(
+        checkin_count=compute_checkin_count(request.checkins),
+        days_since_last_checkin=compute_days_since_last_checkin(request.checkins, as_of),
+        latest_checkin=build_latest_checkin_summary(request.checkins),
+        symptom_trend=compute_symptom_trend(request.checkins),
+        vital_trend=compute_vital_trend(request.checkins),
+        medications=compute_current_medications(request.medications, as_of),
+        latest_lab=compute_latest_lab(request.lab_tests),
+        open_follow_up=compute_open_follow_up(request.appointments),
+    )
+
+    return PatientHistorySummaryResponse(
+        patient_id=request.patient_id,
+        request_id=request.request_id,
+        generated_at=datetime.now(timezone.utc),
+        history=history,
+    )
