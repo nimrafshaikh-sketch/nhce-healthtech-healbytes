@@ -23,6 +23,18 @@ def route_alert_for_checkin(checkin_id):
     if decision is None:
         return {"alert_created": False, "risk_level": checkin.ai_risk_level}
 
+    # Idempotency guard: if this task is retried or otherwise runs twice for
+    # the same checkin (e.g. a Celery retry after a transient failure, or a
+    # duplicate task dispatch), do not create a second Alert or send a second
+    # doctor email for it. One checkin -> at most one Alert.
+    existing_alert = Alert.objects.filter(checkin_id=checkin_id).first()
+    if existing_alert is not None:
+        return {
+            "alert_created": False,
+            "reason": "duplicate: an alert already exists for this checkin",
+            "alert_id": existing_alert.id,
+        }
+
     severity, recipient_role, reason = decision
     alert = Alert.objects.create(
         patient=checkin.patient,

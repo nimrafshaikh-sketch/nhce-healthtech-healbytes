@@ -123,7 +123,23 @@ def send_doctor_alert_email(alert):
     patient = alert.patient
     doctor = patient.doctor
     if not doctor or not doctor.email:
-        return None
+        # Fail safe, never fabricate a recipient address: still write an
+        # audit row (sent=False) and record the failure on the Alert itself,
+        # so "why didn't the doctor get emailed?" is answerable from the
+        # data instead of silently disappearing.
+        reason = "no doctor assigned to patient" if not doctor else "doctor has no email on file"
+        log = EmailNotificationLog.objects.create(
+            recipient_type=EmailNotificationLog.RecipientType.DOCTOR,
+            recipient_user=doctor, recipient_email="",
+            category=EmailNotificationLog.Category.ALERT, patient=patient,
+            checkin=alert.checkin, alert=alert, risk_level=alert.severity,
+            subject=f"[HealBytes] {alert.get_severity_display()} alert - {patient.full_name}",
+            sent=False, error=reason,
+        )
+        alert.email_sent = False
+        alert.email_error = reason
+        alert.save(update_fields=["email_sent", "email_error"])
+        return log
 
     subject = f"[HealBytes] {alert.get_severity_display()} alert - {patient.full_name}"
     body = "\n".join([

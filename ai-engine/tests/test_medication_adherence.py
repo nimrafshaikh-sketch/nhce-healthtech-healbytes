@@ -37,7 +37,7 @@ _FORBIDDEN_PHRASES = [
 ]
 
 
-def _record(status: str, name: str = "TestMed") -> MedicationAdherenceRecord:
+def _record(status: MedicationAdherenceStatus, name: str = "TestMed") -> MedicationAdherenceRecord:
     return MedicationAdherenceRecord(medication_name=name, adherence_status=status)
 
 
@@ -45,28 +45,28 @@ def _record(status: str, name: str = "TestMed") -> MedicationAdherenceRecord:
 
 
 def test_adherent_contributes_zero():
-    result = assess_medication_adherence([_record("adherent")])
+    result = assess_medication_adherence([_record(MedicationAdherenceStatus.ADHERENT)])
     assert result.score_adjustment == 0
 
 
 def test_partially_adherent_contributes_three():
-    result = assess_medication_adherence([_record("partially_adherent")])
+    result = assess_medication_adherence([_record(MedicationAdherenceStatus.PARTIALLY_ADHERENT)])
     assert result.score_adjustment == 3
 
 
 def test_non_adherent_contributes_five():
-    result = assess_medication_adherence([_record("non_adherent")])
+    result = assess_medication_adherence([_record(MedicationAdherenceStatus.NON_ADHERENT)])
     assert result.score_adjustment == 5
 
 
 def test_unknown_contributes_zero():
-    result = assess_medication_adherence([_record("unknown")])
+    result = assess_medication_adherence([_record(MedicationAdherenceStatus.UNKNOWN)])
     assert result.score_adjustment == 0
 
 
 def test_unknown_is_not_treated_as_non_adherent():
-    unknown_result = assess_medication_adherence([_record("unknown")])
-    non_adherent_result = assess_medication_adherence([_record("non_adherent")])
+    unknown_result = assess_medication_adherence([_record(MedicationAdherenceStatus.UNKNOWN)])
+    non_adherent_result = assess_medication_adherence([_record(MedicationAdherenceStatus.NON_ADHERENT)])
     assert unknown_result.score_adjustment == 0
     assert unknown_result.score_adjustment != non_adherent_result.score_adjustment
 
@@ -85,18 +85,18 @@ def test_no_records_contributes_zero_and_is_not_a_false_penalty():
 
 
 def test_single_non_adherent_reaches_the_cap():
-    result = assess_medication_adherence([_record("non_adherent")])
+    result = assess_medication_adherence([_record(MedicationAdherenceStatus.NON_ADHERENT)])
     assert result.score_adjustment == MEDICATION_ADJUSTMENT_MAX
 
 
 def test_many_non_adherent_records_still_capped_at_five():
-    records = [_record("non_adherent", f"med-{i}") for i in range(10)]
+    records = [_record(MedicationAdherenceStatus.NON_ADHERENT, f"med-{i}") for i in range(10)]
     result = assess_medication_adherence(records)
     assert result.score_adjustment == MEDICATION_ADJUSTMENT_MAX
 
 
 def test_multiple_partial_adherence_records_cannot_exceed_five():
-    records = [_record("partially_adherent", f"med-{i}") for i in range(5)]
+    records = [_record(MedicationAdherenceStatus.PARTIALLY_ADHERENT, f"med-{i}") for i in range(5)]
     result = assess_medication_adherence(records)
     assert result.score_adjustment <= MEDICATION_ADJUSTMENT_MAX
     assert result.score_adjustment == MEDICATION_ADJUSTMENT_MAX  # 5*3=15, clamped
@@ -104,9 +104,9 @@ def test_multiple_partial_adherence_records_cannot_exceed_five():
 
 def test_mixed_records_are_bounded():
     records = [
-        _record("non_adherent", "a"),
-        _record("non_adherent", "b"),
-        _record("partially_adherent", "c"),
+        _record(MedicationAdherenceStatus.NON_ADHERENT, "a"),
+        _record(MedicationAdherenceStatus.NON_ADHERENT, "b"),
+        _record(MedicationAdherenceStatus.PARTIALLY_ADHERENT, "c"),
     ]
     result = assess_medication_adherence(records)
     assert result.score_adjustment == MEDICATION_ADJUSTMENT_MAX  # raw 13, capped
@@ -115,9 +115,9 @@ def test_mixed_records_are_bounded():
 def test_unknown_records_never_contribute_even_when_mixed_with_concerning_ones():
     # Unknown entries add nothing on top of whatever concern is already there.
     with_unknown = assess_medication_adherence(
-        [_record("non_adherent", "a"), _record("unknown", "b")]
+        [_record(MedicationAdherenceStatus.NON_ADHERENT, "a"), _record(MedicationAdherenceStatus.UNKNOWN, "b")]
     )
-    without_unknown = assess_medication_adherence([_record("non_adherent", "a")])
+    without_unknown = assess_medication_adherence([_record(MedicationAdherenceStatus.NON_ADHERENT, "a")])
     assert with_unknown.score_adjustment == without_unknown.score_adjustment
 
 
@@ -139,14 +139,14 @@ def test_contribution_map_never_produces_a_negative_value():
 
 
 def test_same_input_produces_same_output():
-    records = [_record("non_adherent", "a"), _record("partially_adherent", "b")]
+    records = [_record(MedicationAdherenceStatus.NON_ADHERENT, "a"), _record(MedicationAdherenceStatus.PARTIALLY_ADHERENT, "b")]
     first = assess_medication_adherence(list(records))
     second = assess_medication_adherence(list(records))
     assert first == second
 
 
 def test_repeated_calls_are_stable():
-    records = [_record("partially_adherent")]
+    records = [_record(MedicationAdherenceStatus.PARTIALLY_ADHERENT)]
     results = [assess_medication_adherence(list(records)) for _ in range(5)]
     assert len({r.score_adjustment for r in results}) == 1
     assert len({r.reason_fragment for r in results}) == 1
@@ -156,13 +156,13 @@ def test_repeated_calls_are_stable():
 
 
 def test_medication_name_does_not_affect_the_adjustment():
-    a = assess_medication_adherence([_record("non_adherent", "Aspirin")])
-    b = assess_medication_adherence([_record("non_adherent", "SomethingElseEntirely")])
+    a = assess_medication_adherence([_record(MedicationAdherenceStatus.NON_ADHERENT, "Aspirin")])
+    b = assess_medication_adherence([_record(MedicationAdherenceStatus.NON_ADHERENT, "SomethingElseEntirely")])
     assert a.score_adjustment == b.score_adjustment
 
 
 def test_does_not_mutate_input_list():
-    records = [_record("non_adherent", "a")]
+    records = [_record(MedicationAdherenceStatus.NON_ADHERENT, "a")]
     original_len = len(records)
     assess_medication_adherence(records)
     assert len(records) == original_len
@@ -174,16 +174,16 @@ def test_does_not_mutate_input_list():
 
 def test_reason_reflects_observed_status_counts():
     result = assess_medication_adherence(
-        [_record("non_adherent", "a"), _record("adherent", "b")]
+        [_record(MedicationAdherenceStatus.NON_ADHERENT, "a"), _record(MedicationAdherenceStatus.ADHERENT, "b")]
     )
     lowered = result.reason_fragment.lower()
     assert "observed" in lowered
-    assert "non_adherent" in lowered
-    assert "adherent" in lowered
+    assert MedicationAdherenceStatus.NON_ADHERENT in lowered
+    assert MedicationAdherenceStatus.ADHERENT in lowered
 
 
 def test_reason_explains_bounding_when_raw_total_exceeds_max():
-    records = [_record("non_adherent", "a"), _record("non_adherent", "b")]
+    records = [_record(MedicationAdherenceStatus.NON_ADHERENT, "a"), _record(MedicationAdherenceStatus.NON_ADHERENT, "b")]
     result = assess_medication_adherence(records)
     lowered = result.reason_fragment.lower()
     assert "bounded" in lowered or "maximum" in lowered
@@ -197,10 +197,10 @@ def test_reason_for_no_records_says_none_supplied():
 def test_reason_always_carries_the_non_clinical_disclaimer():
     for records in (
         [],
-        [_record("adherent")],
-        [_record("unknown")],
-        [_record("partially_adherent")],
-        [_record("non_adherent")],
+        [_record(MedicationAdherenceStatus.ADHERENT)],
+        [_record(MedicationAdherenceStatus.UNKNOWN)],
+        [_record(MedicationAdherenceStatus.PARTIALLY_ADHERENT)],
+        [_record(MedicationAdherenceStatus.NON_ADHERENT)],
     ):
         result = assess_medication_adherence(records)
         lowered = result.reason_fragment.lower()
@@ -211,11 +211,11 @@ def test_reason_always_carries_the_non_clinical_disclaimer():
 def test_reason_never_contains_forbidden_phrases():
     for records in (
         [],
-        [_record("adherent")],
-        [_record("partially_adherent")],
-        [_record("non_adherent")],
-        [_record("unknown")],
-        [_record("non_adherent", "a"), _record("non_adherent", "b")],
+        [_record(MedicationAdherenceStatus.ADHERENT)],
+        [_record(MedicationAdherenceStatus.PARTIALLY_ADHERENT)],
+        [_record(MedicationAdherenceStatus.NON_ADHERENT)],
+        [_record(MedicationAdherenceStatus.UNKNOWN)],
+        [_record(MedicationAdherenceStatus.NON_ADHERENT, "a"), _record(MedicationAdherenceStatus.NON_ADHERENT, "b")],
     ):
         result = assess_medication_adherence(records)
         lowered = result.reason_fragment.lower()

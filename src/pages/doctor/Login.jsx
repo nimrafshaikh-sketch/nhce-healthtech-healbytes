@@ -4,15 +4,15 @@ import { Stethoscope, ArrowRight } from "lucide-react";
 import Input from "../../components/ui/Input";
 import Button from "../../components/ui/Button";
 import { useAuth } from "../../context/AuthContext";
-import { USE_MOCK } from "../../api/client";
 
 export default function DoctorLogin() {
   const { login, status, error } = useAuth();
   const navigate = useNavigate();
-  const [form, setForm] = useState({
-    email: USE_MOCK ? "sarah.chen@healbytes.demo" : "doctor@healbytes.local",
-    password: USE_MOCK ? "demo1234" : "DoctorPass123!",
-  });
+  // No default/demo email or password is pre-filled here: the doctor must
+  // always enter their own registered credentials. (Demo credentials, if
+  // used for a walkthrough, are documented separately - see README - not
+  // hardcoded into the UI.)
+  const [form, setForm] = useState({ email: "", password: "" });
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -85,9 +85,6 @@ export default function DoctorLogin() {
             Sign in to Dashboard
           </Button>
 
-          <p className="mt-4 text-center text-xs text-ink-400">
-            Demo mode — credentials are pre-filled, just sign in.
-          </p>
         </form>
       </div>
     </div>

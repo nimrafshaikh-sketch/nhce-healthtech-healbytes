@@ -6,7 +6,10 @@ Kept in one place, deliberately simple, so they're easy to change later
 without touching the Celery task plumbing or models.
 
 Rule (AI risk_level -> who gets alerted):
-    high   -> Doctor + Caretaker, in-app Alert only (urgent - no email)
+    high   -> Doctor + Caretaker in-app Alert, AND the doctor also gets an
+              email (urgent - see DOCTOR_EMAIL_SEVERITIES/should_email_doctor
+              below; caretaker delivery for high stays in-app/API only, since
+              the caretaker has no login in this build - see route_alert_for_checkin)
     medium -> Doctor in-app Alert, AND caretaker gets an email (not too serious)
     low    -> no in-app Alert (not urgent enough for the doctor dashboard),
               but caretaker still gets an email (not too serious)
