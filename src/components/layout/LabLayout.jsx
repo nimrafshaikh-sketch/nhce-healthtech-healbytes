@@ -1,12 +1,29 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { FlaskConical, ClipboardList, LogOut } from "lucide-react";
+import { FlaskConical, ClipboardList, LogOut, Bell } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import { getUnreadNotificationCount } from "../../api/notifications.api";
 import Button from "../ui/Button";
 
 export default function LabLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    function poll() {
+      getUnreadNotificationCount()
+        .then((count) => active && setUnreadCount(count))
+        .catch(() => {});
+    }
+    poll();
+    const interval = setInterval(poll, 15000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   function handleLogout() {
     logout();
@@ -47,6 +64,14 @@ export default function LabLayout() {
           </div>
 
           <div className="flex items-center gap-3">
+            <div className="relative text-ink-500" title={`${unreadCount} unread notification(s)`}>
+              <Bell size={18} />
+              {unreadCount > 0 && (
+                <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-risk-high px-1 text-[10px] font-bold text-white">
+                  {unreadCount}
+                </span>
+              )}
+            </div>
             <div className="text-right hidden sm:block">
               <p className="text-xs font-semibold text-ink-900">{user?.first_name || user?.username || "Lab Technician"}</p>
               <p className="text-[10px] text-ink-400">Medical Laboratory Scientist</p>

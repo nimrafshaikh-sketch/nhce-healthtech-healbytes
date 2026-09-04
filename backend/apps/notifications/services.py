@@ -26,11 +26,12 @@ def create_notification(*, user, notification_type, title, body="", related_obje
 
 
 def _send_and_log(*, recipient_type, recipient_user, recipient_email, category, patient,
-                   subject, body, checkin=None, alert=None, medication=None, risk_level=""):
+                   subject, body, checkin=None, alert=None, medication=None,
+                   lab_test_request=None, risk_level=""):
     log = EmailNotificationLog.objects.create(
         recipient_type=recipient_type, recipient_user=recipient_user, recipient_email=recipient_email,
         category=category, patient=patient, checkin=checkin, alert=alert, medication=medication,
-        subject=subject, risk_level=risk_level,
+        lab_test_request=lab_test_request, subject=subject, risk_level=risk_level,
     )
     try:
         send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [recipient_email], fail_silently=False)
@@ -159,4 +160,37 @@ def send_patient_medication_reminder_email(medication):
         recipient_user=patient.user, recipient_email=patient.user.email,
         category=EmailNotificationLog.Category.MEDICATION_REMINDER, patient=patient,
         subject=subject, body=body, medication=medication,
+    )
+
+
+def send_lab_tech_new_request_email(lab_request, lab_tech):
+    """Emails one lab technician that a new lab test request is waiting in
+    the queue. Called once per active lab technician when a doctor creates
+    a LabTestRequest (see apps.labtests.tasks.notify_lab_techs_of_new_request) -
+    alongside the in-app Notification/badge, from the same backend event.
+    """
+    patient = lab_request.patient
+    if not lab_tech or not lab_tech.email:
+        return None
+
+    requesting_doctor = lab_request.requested_by
+    doctor_label = (
+        f"Dr. {requesting_doctor.get_full_name() or requesting_doctor.email}"
+        if requesting_doctor else "A doctor"
+    )
+    subject = f"[HealBytes] New lab request: {lab_request.get_test_name_display()} - {patient.full_name}"
+    body = "\n".join([
+        f"Hi {lab_tech.get_full_name() or lab_tech.email},",
+        "",
+        f"{doctor_label} requested a {lab_request.get_test_name_display()} for {patient.full_name} "
+        f"({lab_request.get_priority_display()} priority).",
+        "",
+        "Open the Lab Technician dashboard to claim this request.",
+        "This is an automated message from HealBytes.",
+    ])
+    return _send_and_log(
+        recipient_type=EmailNotificationLog.RecipientType.LAB_TECH,
+        recipient_user=lab_tech, recipient_email=lab_tech.email,
+        category=EmailNotificationLog.Category.LAB_TEST_REQUEST, patient=patient,
+        subject=subject, body=body, lab_test_request=lab_request,
     )

@@ -1,4 +1,4 @@
-import { apiFetch, USE_MOCK, mockDelay } from "./client";
+import { apiFetch, USE_MOCK, mockDelay, BASE_URL } from "./client";
 
 export async function uploadDocument(formData) {
   if (USE_MOCK) {
@@ -24,7 +24,7 @@ export async function uploadDocument(formData) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const response = await fetch("http://localhost:8000/api/documents/upload/", {
+  const response = await fetch(`${BASE_URL}/documents/upload/`, {
     method: "POST",
     headers,
     body: formData,
@@ -37,7 +37,11 @@ export async function uploadDocument(formData) {
   return response.json();
 }
 
-export async function getDocuments(patientId = null) {
+// Bug fix: the only call site (PatientProfile.jsx) passes {patientId: id},
+// but this accepted a bare `patientId` positional argument - the object was
+// truthy, so it silently built `/documents/?patient=[object Object]` in
+// live mode (mock mode masked this, since it always just returns []).
+export async function getDocuments({ patientId } = {}) {
   if (USE_MOCK) {
     await mockDelay(300);
     return [];
@@ -67,5 +71,5 @@ export async function verifyPrescriptionDocument(documentId, data) {
 }
 
 export function getDocumentViewUrl(documentId) {
-  return `http://localhost:8000/api/documents/${documentId}/view/`;
+  return `${BASE_URL}/documents/${documentId}/view/`;
 }

@@ -5,12 +5,22 @@ export async function redeemInvitation({ code, email, username, password }, pati
   if (USE_MOCK) {
     await mockDelay(700);
     const normalized = String(code).trim().toUpperCase();
-    const match = patients.find((p) => p.invitationCode?.toUpperCase() === normalized) || patients[0];
+    // Root-cause fix (Part 1): never fall back to patients[0] when no code
+    // matches - that's exactly how a fresh browser/device (with no prior
+    // knowledge of a patient created elsewhere) used to silently redeem
+    // into a random seeded demo patient instead of failing. Match strictly,
+    // like the real backend's InvitationRedeemView does via the DB FK.
+    const match = patients.find((p) => p.invitationCode?.toUpperCase() === normalized);
+    if (!match) {
+      const err = new Error("Invalid invitation code.");
+      err.status = 400;
+      throw err;
+    }
     return {
       detail: "Account created and linked to doctor.",
       access: "mock-patient-access-token",
       refresh: "mock-patient-refresh-token",
-      patient_id: match?.id || 1,
+      patient_id: match.id,
       patient: match,
     };
   }

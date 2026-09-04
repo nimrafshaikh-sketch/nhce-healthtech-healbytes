@@ -13,6 +13,7 @@ class Notification(TimeStampedModel):
         MEDICATION_REMINDER = "medication_reminder", "Medication reminder"
         ALERT = "alert", "Alert"
         INVITATION = "invitation", "Invitation"
+        LAB_TEST_REQUEST = "lab_test_request", "New lab test request"
         GENERAL = "general", "General"
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications")
@@ -50,12 +51,14 @@ class EmailNotificationLog(TimeStampedModel):
         DOCTOR = "doctor", "Doctor"
         PATIENT = "patient", "Patient"
         CARETAKER = "caretaker", "Caretaker"
+        LAB_TECH = "lab_tech", "Lab Technician"
 
     class Category(models.TextChoices):
         ALERT = "alert", "Doctor alert (high-risk check-in)"
         CHECKIN_RESULT = "checkin_result", "Patient's own check-in risk result"
         CARETAKER_UPDATE = "caretaker_update", "Caretaker check-in update"
         MEDICATION_REMINDER = "medication_reminder", "Medication reminder"
+        LAB_TEST_REQUEST = "lab_test_request", "New lab test request (lab technician alert)"
 
     recipient_type = models.CharField(max_length=10, choices=RecipientType.choices)
     recipient_user = models.ForeignKey(
@@ -78,6 +81,10 @@ class EmailNotificationLog(TimeStampedModel):
     )
     medication = models.ForeignKey(
         "medications.Medication", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="email_notification_logs",
+    )
+    lab_test_request = models.ForeignKey(
+        "labtests.LabTestRequest", on_delete=models.SET_NULL, null=True, blank=True,
         related_name="email_notification_logs",
     )
 

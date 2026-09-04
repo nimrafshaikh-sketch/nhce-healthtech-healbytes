@@ -53,6 +53,28 @@ def send_doctor_alert_email_task(alert_id):
 
 
 @shared_task
+def send_lab_tech_new_request_email_task(lab_request_id, lab_tech_id):
+    from apps.accounts.models import User
+    from apps.labtests.models import LabTestRequest
+
+    from .services import send_lab_tech_new_request_email
+
+    try:
+        lab_request = LabTestRequest.objects.select_related("patient", "requested_by").get(id=lab_request_id)
+    except LabTestRequest.DoesNotExist:
+        return {"error": "lab test request not found"}
+    try:
+        lab_tech = User.objects.get(id=lab_tech_id)
+    except User.DoesNotExist:
+        return {"error": "lab technician not found"}
+
+    log = send_lab_tech_new_request_email(lab_request, lab_tech)
+    if log is None:
+        return {"sent": False, "reason": "lab technician has no email on file"}
+    return {"sent": log.sent, "log_id": log.id}
+
+
+@shared_task
 def send_patient_medication_reminder_email_task(medication_id):
     from apps.medications.models import Medication
 

@@ -191,8 +191,11 @@ QR_TOKEN_EXPIRY_MINUTES = int(os.environ.get("QR_TOKEN_EXPIRY_MINUTES", 15))
 # fresh QR code. Deliberately separate from QR_TOKEN_EXPIRY_MINUTES: the QR
 # *token* is single-use-short-lived (15 min) so it can't be screenshotted and
 # replayed later, but the *access it grants* to a consulting doctor needs to
-# outlast that scan long enough for one consultation (default 24h).
-QR_ACCESS_GRANT_HOURS = int(os.environ.get("QR_ACCESS_GRANT_HOURS", 24))
+# outlast that scan long enough for one consultation.
+# Expressed in MINUTES (not hours) so a value like 10 can't be silently
+# misread as "10 hours" - the required consultation window is exactly 10
+# minutes by default.
+QR_ACCESS_GRANT_MINUTES = int(os.environ.get("QR_ACCESS_GRANT_MINUTES", 10))
 
 # ---- Email (caretaker notifications) ----
 # Defaults to the console backend (emails are composed + logged, not sent)

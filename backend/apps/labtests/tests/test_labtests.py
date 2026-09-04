@@ -1,9 +1,11 @@
+from django.core import mail
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.core.test_utils import auth_headers, make_doctor, make_lab_tech, make_patient_user, make_receptionist
 from apps.labtests.models import LabTestRequest, LabTestResult
+from apps.notifications.models import EmailNotificationLog, Notification
 from apps.patients.models import Patient
 
 
@@ -149,3 +151,81 @@ class LabTestFlowTests(APITestCase):
         req = LabTestRequest.objects.create(patient=self.patient, requested_by=self.doctor, test_name="CBC")
         resp = self.client.get(reverse("labtest-request-list-create"), **auth_headers(patient_user))
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class LabTestAlertNotificationTests(APITestCase):
+    """Part 6/7: a new lab test request must alert the Lab Technician
+    portal - both as an in-app dashboard notification/badge and (Part 8/9)
+    as an email, both originating from the same POST /api/labtests/requests/
+    event, not requiring a manual DB reset/refresh to appear."""
+
+    def setUp(self):
+        self.doctor = make_doctor()
+        self.lab_tech = make_lab_tech()
+        self.other_lab_tech = make_lab_tech(email="labtech2@example.com", username="labtech2")
+        self.patient = Patient.objects.create(doctor=self.doctor, full_name="Mira")
+        self.doctor_headers = auth_headers(self.doctor)
+
+    def test_creating_lab_request_immediately_visible_via_live_backend_queryset(self):
+        """The lab tech queue is a live queryset (Q(status=REQUESTED) |
+        Q(assigned_lab_tech=user)) - a freshly created request must appear
+        on the very next GET, no reset/refresh required."""
+        resp = self.client.post(reverse("labtest-request-list-create"),
+                                 {"patient": self.patient.id, "test_name": "CBC"}, format="json",
+                                 **self.doctor_headers)
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        request_id = resp.data["id"]
+
+        list_resp = self.client.get(reverse("labtest-request-list-create"), **auth_headers(self.lab_tech))
+        self.assertEqual(list_resp.data["count"], 1)
+        self.assertEqual(list_resp.data["results"][0]["id"], request_id)
+
+    def test_new_lab_request_creates_in_app_notification_for_every_lab_tech(self):
+        resp = self.client.post(reverse("labtest-request-list-create"),
+                                 {"patient": self.patient.id, "test_name": "HBA1C"}, format="json",
+                                 **self.doctor_headers)
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        request_id = resp.data["id"]
+
+        for lab_tech in (self.lab_tech, self.other_lab_tech):
+            notif = Notification.objects.filter(
+                user=lab_tech,
+                notification_type=Notification.NotificationType.LAB_TEST_REQUEST,
+                related_object_type="lab_test_request",
+                related_object_id=request_id,
+            ).first()
+            self.assertIsNotNone(notif, f"expected a dashboard notification for {lab_tech.email}")
+            self.assertIn("Mira", notif.body)
+
+    def test_new_lab_request_sends_email_to_every_lab_tech_and_logs_it(self):
+        resp = self.client.post(reverse("labtest-request-list-create"),
+                                 {"patient": self.patient.id, "test_name": "CBC", "priority": "urgent"},
+                                 format="json", **self.doctor_headers)
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        request_id = resp.data["id"]
+
+        # Real delivery through the configured (locmem, in tests) EMAIL_BACKEND.
+        self.assertEqual(len(mail.outbox), 2)
+        recipients = {m.to[0] for m in mail.outbox}
+        self.assertEqual(recipients, {self.lab_tech.email, self.other_lab_tech.email})
+
+        logs = EmailNotificationLog.objects.filter(
+            lab_test_request_id=request_id, category=EmailNotificationLog.Category.LAB_TEST_REQUEST,
+        )
+        self.assertEqual(logs.count(), 2)
+        self.assertTrue(all(log.sent for log in logs))
+
+    def test_doctor_creating_request_does_not_notify_other_doctors_or_receptionist(self):
+        """Alert fan-out is scoped to lab technicians only - not a broadcast
+        to every user in the system."""
+        other_doctor = make_doctor(email="other-doc@example.com", username="otherdoc")
+        receptionist = make_receptionist()
+
+        resp = self.client.post(reverse("labtest-request-list-create"),
+                                 {"patient": self.patient.id, "test_name": "CBC"}, format="json",
+                                 **self.doctor_headers)
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
+        self.assertFalse(Notification.objects.filter(user=other_doctor).exists())
+        self.assertFalse(Notification.objects.filter(user=receptionist).exists())
+        self.assertFalse(Notification.objects.filter(user=self.doctor).exists())
