@@ -1,10 +1,12 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, Check, Circle, Sun, Sunset, Moon, ClipboardCheck } from "lucide-react";
 import Avatar from "../../components/ui/Avatar";
 import { useAuth } from "../../context/AuthContext";
 import { useData } from "../../context/DataContext";
 import { formatDayLabel, formatDateTime, formatTime } from "../../utils/dateUtils";
+import { getMedications } from "../../api/medication.api";
+import { USE_MOCK } from "../../api/client";
 
 const STATUS_COPY = {
   LOW: {
@@ -39,14 +41,28 @@ function greeting() {
 export default function PatientHome() {
   const { user } = useAuth();
   const { getMedicationsForPatient, getPatientById } = useData();
+  const [liveMedications, setLiveMedications] = useState(null);
   const navigate = useNavigate();
 
-  // Always read live data from DataContext — `user` is just the session
-  // snapshot from login and won't reflect a check-in's risk update.
-  const patient = getPatientById(user.id) || user;
+  useEffect(() => {
+    let active = true;
+    if (!USE_MOCK) {
+      getMedications()
+        .then((data) => {
+          if (active) setLiveMedications(data);
+        })
+        .catch(console.error);
+    }
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const patient = getPatientById(user?.id) || user || {};
 
   const order = { MORNING: 0, AFTERNOON: 1, EVENING: 2 };
-  const medications = [...getMedicationsForPatient(patient.id)].sort(
+  const rawMeds = liveMedications !== null ? liveMedications : getMedicationsForPatient(patient.id);
+  const medications = [...rawMeds].sort(
     (a, b) => order[a.timeOfDay] - order[b.timeOfDay]
   );
 

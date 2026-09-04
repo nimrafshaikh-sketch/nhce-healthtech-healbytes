@@ -36,9 +36,10 @@ export function AuthProvider({ children }) {
       setError(null);
       try {
         const { token, user } = await loginApi({ role, ...credentials });
-        persist({ role, user, token });
+        const effectiveRole = user?.role || role;
+        persist({ role: effectiveRole, user, token });
         setStatus("idle");
-        return user;
+        return { user, role: effectiveRole };
       } catch (err) {
         setError(err.message || "Unable to sign in.");
         setStatus("error");
@@ -48,10 +49,10 @@ export function AuthProvider({ children }) {
     [persist]
   );
 
-  // Used after invitation verification + registration — no password step in demo mode.
+  // Used after invitation verification + registration
   const loginAsPatient = useCallback(
-    (patientRecord) => {
-      persist({ role: "PATIENT", user: patientRecord, token: "demo-patient-token" });
+    (patientRecord, token = "demo-patient-token") => {
+      persist({ role: "PATIENT", user: patientRecord, token });
     },
     [persist]
   );

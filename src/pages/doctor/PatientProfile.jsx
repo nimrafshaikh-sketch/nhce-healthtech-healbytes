@@ -1,11 +1,23 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Plus, CalendarPlus } from "lucide-react";
+import {
+  ArrowLeft,
+  Plus,
+  CalendarPlus,
+  FlaskConical,
+  UploadCloud,
+  FileText,
+  ExternalLink,
+  ShieldAlert,
+  ShieldCheck,
+  Clock,
+} from "lucide-react";
 import Topbar from "../../components/layout/Topbar";
 import RiskBadge from "../../components/healthcare/RiskBadge";
 import RiskScore from "../../components/healthcare/RiskScore";
 import Avatar from "../../components/ui/Avatar";
 import Button from "../../components/ui/Button";
+import Badge from "../../components/ui/Badge";
 import CheckinSummary from "../../components/healthcare/CheckinSummary";
 import MedicationCard from "../../components/healthcare/MedicationCard";
 import AIHistorySummaryCard from "../../components/healthcare/AIHistorySummaryCard";
@@ -13,11 +25,16 @@ import EmptyState from "../../components/ui/EmptyState";
 import Modal from "../../components/ui/Modal";
 import Input from "../../components/ui/Input";
 import MedicationFormModal from "../../components/healthcare/MedicationFormModal";
+import LabOrderModal from "../../components/healthcare/LabOrderModal";
+import DocumentUploadModal from "../../components/healthcare/DocumentUploadModal";
+import PrescriptionVerificationModal from "../../components/healthcare/PrescriptionVerificationModal";
 import { useData } from "../../context/DataContext";
 import { getPatientAISummary } from "../../api/analytics.api";
+import { orderLabTest } from "../../api/lab.api";
+import { getDocuments, getDocumentViewUrl } from "../../api/documents.api";
 import { formatRelativeTime, formatDayLabel, formatTime } from "../../utils/dateUtils";
 
-const TABS = ["Overview", "Check-ins", "Medications", "History", "Analytics"];
+const TABS = ["Overview", "Documents", "Check-ins", "Medications", "History", "Analytics"];
 
 export default function PatientProfile() {
   const { id } = useParams();
@@ -29,6 +46,7 @@ export default function PatientProfile() {
     addMedication,
     markMedicationStatus,
     updatePatient,
+    refreshData,
   } = useData();
 
   const patient = getPatientById(id);
@@ -37,30 +55,43 @@ export default function PatientProfile() {
 
   const [tab, setTab] = useState("Overview");
   const [medModalOpen, setMedModalOpen] = useState(false);
+  const [labModalOpen, setLabModalOpen] = useState(false);
+  const [docUploadOpen, setDocUploadOpen] = useState(false);
+  const [verifyPrescriptionDoc, setVerifyPrescriptionDoc] = useState(null);
   const [followUpOpen, setFollowUpOpen] = useState(false);
   const [followUpForm, setFollowUpForm] = useState({ date: "", time: "10:30", reason: "" });
   const [aiSummary, setAiSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [documents, setDocuments] = useState([]);
+  const [docsLoading, setDocsLoading] = useState(false);
 
-  useEffect(() => {
-    let active = true;
+  const fetchSummary = useCallback(() => {
     if (id) {
       setSummaryLoading(true);
       getPatientAISummary(id)
-        .then((data) => {
-          if (active) setAiSummary(data);
-        })
-        .catch((err) => {
-          console.error("AI summary error:", err);
-        })
-        .finally(() => {
-          if (active) setSummaryLoading(false);
-        });
+        .then((data) => setAiSummary(data))
+        .catch(console.error)
+        .finally(() => setSummaryLoading(false));
     }
-    return () => {
-      active = false;
-    };
   }, [id]);
+
+  const fetchDocList = useCallback(() => {
+    if (id) {
+      setDocsLoading(true);
+      getDocuments({ patientId: id })
+        .then((data) => {
+          const list = Array.isArray(data) ? data : data.results || [];
+          setDocuments(list);
+        })
+        .catch((err) => console.error("Error fetching patient documents:", err))
+        .finally(() => setDocsLoading(false));
+    }
+  }, [id]);
+
+  useEffect(() => {
+    fetchSummary();
+    fetchDocList();
+  }, [fetchSummary, fetchDocList]);
 
   if (!patient) {
     return (
@@ -81,6 +112,22 @@ export default function PatientProfile() {
       nextFollowUp: { doctorName: "Dr. Sarah Chen", date, reason: followUpForm.reason || "Follow-up review" },
     });
     setFollowUpOpen(false);
+  }
+
+  async function handleOrderLab({ testName, priority, notes }) {
+    await orderLabTest({ patientId: patient.id, testName, priority, notes });
+    fetchSummary();
+  }
+
+  function handleDocumentUploaded() {
+    fetchDocList();
+    fetchSummary();
+  }
+
+  function handlePrescriptionVerified() {
+    fetchDocList();
+    fetchSummary();
+    if (refreshData) refreshData();
   }
 
   return (
@@ -112,8 +159,14 @@ export default function PatientProfile() {
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
+            <Button variant="secondary" leftIcon={<UploadCloud size={15} />} onClick={() => setDocUploadOpen(true)}>
+              Upload Document
+            </Button>
             <Button variant="secondary" leftIcon={<Plus size={15} />} onClick={() => setMedModalOpen(true)}>
               Add Medication
+            </Button>
+            <Button variant="secondary" leftIcon={<FlaskConical size={15} />} onClick={() => setLabModalOpen(true)}>
+              Order Lab Test
             </Button>
             <Button variant="secondary" leftIcon={<CalendarPlus size={15} />} onClick={() => setFollowUpOpen(true)}>
               Schedule Follow-up
@@ -164,7 +217,7 @@ export default function PatientProfile() {
                 </div>
               </div>
 
-              {/* AI Clinical History Summary */}
+              {/* AI Clinical Brief & History Summary */}
               <div className="lg:col-span-3">
                 <AIHistorySummaryCard summary={aiSummary} loading={summaryLoading} />
               </div>
@@ -201,6 +254,126 @@ export default function PatientProfile() {
                   </div>
                 </dl>
               </div>
+            </div>
+          )}
+
+          {tab === "Documents" && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-semibold text-ink-900">Patient Clinical Documents & Lab Reports</h2>
+                  <p className="text-xs text-ink-500">
+                    Uploaded diagnostic files, prescriptions, and reports parsed with OCR and indexed for patient-scoped RAG.
+                  </p>
+                </div>
+                <Button leftIcon={<UploadCloud size={15} />} onClick={() => setDocUploadOpen(true)}>
+                  Upload Document
+                </Button>
+              </div>
+
+              {docsLoading ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="h-32 rounded-2xl bg-ink-100 animate-pulse" />
+                  <div className="h-32 rounded-2xl bg-ink-100 animate-pulse" />
+                </div>
+              ) : documents.length ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {documents.map((doc) => {
+                    const findings = doc.extracted_data?.clinical_findings || [];
+                    const isCandidatePrescription =
+                      doc.document_type === "PRESCRIPTION" ||
+                      findings.some((f) => f.entity_type === "CANDIDATE_PRESCRIPTION");
+                    const needsReview = doc.status === "REVIEW_REQUIRED" || (isCandidatePrescription && doc.status !== "VERIFIED");
+
+                    return (
+                      <div
+                        key={doc.id}
+                        className="rounded-2xl border border-ink-300/15 bg-white p-5 shadow-card space-y-3 flex flex-col justify-between"
+                      >
+                        <div>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <FileText size={18} className="text-brand-600 shrink-0" />
+                              <h3 className="font-semibold text-sm text-ink-900">{doc.title}</h3>
+                            </div>
+                            <Badge
+                              variant={
+                                doc.status === "VERIFIED" || doc.status === "COMPLETED"
+                                  ? "success"
+                                  : doc.status === "REVIEW_REQUIRED"
+                                  ? "warning"
+                                  : "neutral"
+                              }
+                              size="sm"
+                            >
+                              {doc.status}
+                            </Badge>
+                          </div>
+
+                          <p className="mt-1 text-xs text-ink-400">
+                            {doc.document_type} · {doc.created_at ? new Date(doc.created_at).toLocaleDateString() : ""}
+                          </p>
+
+                          {/* Extracted Findings Preview */}
+                          {findings.length > 0 && (
+                            <div className="mt-3 rounded-xl bg-canvas-soft/60 p-2.5 border border-ink-100 text-xs space-y-1">
+                              <span className="font-semibold text-ink-500 text-[11px] uppercase tracking-wider">
+                                Extracted Findings:
+                              </span>
+                              <div className="flex flex-wrap gap-1.5 mt-1">
+                                {findings.map((f, i) => (
+                                  <span
+                                    key={i}
+                                    className="bg-white px-2 py-0.5 rounded border border-ink-200 text-ink-800 text-[11px] font-medium"
+                                  >
+                                    {f.entity_type === "BIOMARKER" && `${f.biomarker_name}: ${f.value} ${f.unit || ""}`}
+                                    {f.entity_type === "CANDIDATE_PRESCRIPTION" && `Rx: ${f.drug_name} ${f.dosage || ""}`}
+                                    {f.entity_type === "CLINICAL_NOTE" && f.text?.slice(0, 30)}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Actions */}
+                        <div className="pt-2 border-t border-ink-100 flex items-center justify-between gap-2">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="text-xs"
+                            onClick={() => window.open(getDocumentViewUrl(doc.id), "_blank")}
+                          >
+                            <ExternalLink size={13} className="mr-1 inline" />
+                            View Original Report
+                          </Button>
+
+                          {needsReview && (
+                            <Button
+                              size="sm"
+                              className="text-xs bg-amber-600 hover:bg-amber-700 text-white"
+                              onClick={() => setVerifyPrescriptionDoc(doc)}
+                            >
+                              <ShieldCheck size={13} className="mr-1 inline" />
+                              Review & Verify Rx
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <EmptyState
+                  title="No clinical documents uploaded"
+                  description="Upload lab reports, scans, or prescriptions to enable OCR extraction and patient-scoped RAG retrieval."
+                  action={
+                    <Button leftIcon={<UploadCloud size={15} />} onClick={() => setDocUploadOpen(true)}>
+                      Upload Document
+                    </Button>
+                  }
+                />
+              )}
             </div>
           )}
 
@@ -282,6 +455,26 @@ export default function PatientProfile() {
         onSubmit={(form) => addMedication(patient.id, form)}
       />
 
+      <LabOrderModal
+        open={labModalOpen}
+        onClose={() => setLabModalOpen(false)}
+        onSubmit={handleOrderLab}
+      />
+
+      <DocumentUploadModal
+        open={docUploadOpen}
+        onClose={() => setDocUploadOpen(false)}
+        patientId={patient.id}
+        onUploaded={handleDocumentUploaded}
+      />
+
+      <PrescriptionVerificationModal
+        open={!!verifyPrescriptionDoc}
+        onClose={() => setVerifyPrescriptionDoc(null)}
+        document={verifyPrescriptionDoc}
+        onVerified={handlePrescriptionVerified}
+      />
+
       <Modal open={followUpOpen} onClose={() => setFollowUpOpen(false)} title="Schedule Follow-up">
         <form onSubmit={handleScheduleFollowUp} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -316,3 +509,4 @@ export default function PatientProfile() {
     </>
   );
 }
+

@@ -1,9 +1,11 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Sun, Sunset, Moon } from "lucide-react";
 import MedicationCard from "../../components/healthcare/MedicationCard";
 import EmptyState from "../../components/ui/EmptyState";
 import { useAuth } from "../../context/AuthContext";
 import { useData } from "../../context/DataContext";
+import { getMedications } from "../../api/medication.api";
+import { USE_MOCK } from "../../api/client";
 
 const GROUPS = [
   { key: "MORNING", label: "Morning", icon: Sun },
@@ -14,7 +16,23 @@ const GROUPS = [
 export default function Medicines() {
   const { user } = useAuth();
   const { getMedicationsForPatient, markMedicationStatus } = useData();
-  const medications = getMedicationsForPatient(user.id);
+  const [liveMedications, setLiveMedications] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    if (!USE_MOCK) {
+      getMedications()
+        .then((data) => {
+          if (active) setLiveMedications(data);
+        })
+        .catch(console.error);
+    }
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const medications = liveMedications !== null ? liveMedications : getMedicationsForPatient(user.id);
 
   return (
     <div className="flex-1 px-5 pb-6 pt-8">

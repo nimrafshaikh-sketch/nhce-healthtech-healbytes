@@ -50,9 +50,13 @@ services:
       - "8000:8000"
     environment:
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.prod}
-      DJANGO_DEBUG: ${DJANGO_DEBUG:-True}
+      # Was ${DJANGO_DEBUG:-True} - defaulted to DEBUG on even for the prod
+      # settings module, which leaks stack traces/settings on any unhandled
+      # 500. Must be explicitly opted into, never on by default.
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-False}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-django-insecure-healbytes-secret-key-dev}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-healbytes}
@@ -64,6 +68,7 @@ services:
       AI_ENGINE_TIMEOUT_SECONDS: ${AI_ENGINE_TIMEOUT_SECONDS:-8}
       INVITATION_CODE_EXPIRY_MINUTES: ${INVITATION_CODE_EXPIRY_MINUTES:-15}
       QR_TOKEN_EXPIRY_MINUTES: ${QR_TOKEN_EXPIRY_MINUTES:-15}
+      QR_ACCESS_GRANT_HOURS: ${QR_ACCESS_GRANT_HOURS:-24}
       EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}
       EMAIL_HOST: ${EMAIL_HOST:-}
       EMAIL_PORT: ${EMAIL_PORT:-587}

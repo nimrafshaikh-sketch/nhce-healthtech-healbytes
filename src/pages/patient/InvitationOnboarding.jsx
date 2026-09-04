@@ -1,90 +1,142 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { HeartPulse, CheckCircle2 } from "lucide-react";
+import { HeartPulse, CheckCircle2, UserPlus, KeyRound } from "lucide-react";
 import Input from "../../components/ui/Input";
 import Button from "../../components/ui/Button";
-import Avatar from "../../components/ui/Avatar";
 import { useData } from "../../context/DataContext";
 import { useAuth } from "../../context/AuthContext";
 
 export default function InvitationOnboarding() {
-  const { verifyInvitationCode } = useData();
+  const { redeemInvitationCode } = useData();
   const { loginAsPatient } = useAuth();
   const navigate = useNavigate();
-  const [code, setCode] = useState("");
-  const [patient, setPatient] = useState(null);
+
+  const [formData, setFormData] = useState({
+    code: "",
+    email: "",
+    username: "",
+    password: "",
+  });
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
 
-  async function handleVerify(e) {
+  function handleChange(field, value) {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function handleSubmit(e) {
     e.preventDefault();
     setLoading(true);
     setError(null);
     try {
-      const found = await verifyInvitationCode(code);
-      setPatient(found);
+      const res = await redeemInvitationCode(formData);
+      setSuccess(true);
+      setTimeout(() => {
+        loginAsPatient(
+          {
+            id: res.patient_id,
+            name: formData.username,
+            email: formData.email,
+          },
+          res.access
+        );
+        navigate("/patient/home");
+      }, 1000);
     } catch (err) {
-      setError(err.message);
+      setError(err.message || "Failed to redeem invitation code.");
     } finally {
       setLoading(false);
     }
   }
 
-  function handleContinue() {
-    loginAsPatient(patient);
-    navigate("/patient/home");
-  }
-
-  if (patient) {
+  if (success) {
     return (
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-10 text-center">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-risk-low-bg text-risk-low">
-          <CheckCircle2 size={26} />
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+          <CheckCircle2 size={32} />
         </div>
-        <h1 className="mt-4 text-lg font-semibold text-ink-900">Invitation verified</h1>
-        <p className="mt-1 text-sm text-ink-500">Confirm your details to finish setting up your account.</p>
-
-        <div className="mt-6 flex flex-col items-center gap-2 rounded-2xl border border-ink-300/15 bg-white p-6 shadow-card">
-          <Avatar name={patient.name} initials={patient.avatarInitials} size="lg" />
-          <p className="text-base font-semibold text-ink-900">{patient.name}</p>
-          <p className="text-sm text-ink-500">{patient.condition}</p>
-          <p className="text-xs text-ink-300">Added by Dr. Sarah Chen</p>
-        </div>
-
-        <Button fullWidth size="lg" className="mt-6" onClick={handleContinue}>
-          Continue to HealBytes
-        </Button>
+        <h1 className="mt-4 text-xl font-bold text-ink-900">Account Activated!</h1>
+        <p className="mt-2 text-sm text-ink-500">
+          Your account has been created and linked to your doctor. Redirecting to your dashboard...
+        </p>
       </div>
     );
   }
 
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-10">
-      <div className="mb-8 flex items-center gap-2">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-700 text-white">
-          <HeartPulse size={20} />
+      <div className="mb-8 flex items-center gap-3">
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-700 text-white shadow-md shadow-brand-700/20">
+          <HeartPulse size={22} />
         </div>
-        <span className="text-lg font-bold text-ink-900">HealBytes</span>
+        <div>
+          <span className="text-xl font-bold text-ink-900">HealBytes</span>
+          <p className="text-xs text-ink-400">Patient Onboarding</p>
+        </div>
       </div>
 
-      <h1 className="text-xl font-semibold text-ink-900">Welcome to HealBytes</h1>
-      <p className="mt-1 text-sm text-ink-500">Enter the invitation code provided by your healthcare provider.</p>
+      <div className="rounded-2xl border border-ink-100 bg-white p-6 shadow-card">
+        <h1 className="text-lg font-bold text-ink-900">Activate Your Account</h1>
+        <p className="mt-1 text-xs text-ink-500">
+          Enter the invitation code provided by your clinic to set up your secure patient portal.
+        </p>
 
-      <form onSubmit={handleVerify} className="mt-6 space-y-4">
-        <Input
-          label="Invitation Code"
-          placeholder="HB-XXXXX"
-          value={code}
-          onChange={(e) => setCode(e.target.value.toUpperCase())}
-          error={error}
-          className="text-center text-lg tracking-widest"
-        />
-        <Button type="submit" fullWidth size="lg" loading={loading}>
-          Verify Invitation
-        </Button>
-      </form>
+        {error && (
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+            {error}
+          </div>
+        )}
 
-      <p className="mt-6 text-center text-xs text-ink-400">Demo code: HB-7K29X</p>
+        <form onSubmit={handleSubmit} className="mt-5 space-y-3.5">
+          <Input
+            label="Invitation Code"
+            placeholder="e.g. HB-7K29X"
+            value={formData.code}
+            onChange={(e) => handleChange("code", e.target.value.toUpperCase())}
+            required
+            className="text-center font-mono font-bold tracking-wider"
+          />
+
+          <Input
+            label="Email Address"
+            type="email"
+            placeholder="you@example.com"
+            value={formData.email}
+            onChange={(e) => handleChange("email", e.target.value)}
+            required
+          />
+
+          <Input
+            label="Username"
+            placeholder="Choose a username"
+            value={formData.username}
+            onChange={(e) => handleChange("username", e.target.value)}
+            required
+          />
+
+          <Input
+            label="Password"
+            type="password"
+            placeholder="Create a secure password"
+            value={formData.password}
+            onChange={(e) => handleChange("password", e.target.value)}
+            required
+          />
+
+          <Button type="submit" fullWidth size="lg" loading={loading} className="mt-2">
+            <UserPlus size={16} className="mr-2" />
+            Activate Account
+          </Button>
+        </form>
+      </div>
+
+      <p className="mt-6 text-center text-xs text-ink-400">
+        Already have an active account?{" "}
+        <a href="/login" className="font-semibold text-brand-700 hover:underline">
+          Sign In
+        </a>
+      </p>
     </div>
   );
 }

@@ -25,13 +25,24 @@ import PatientHistory from "../pages/patient/History";
 import PatientQR from "../pages/patient/QR";
 import PatientProfilePage from "../pages/patient/Profile";
 
+import ReceptionistLayout from "../components/layout/ReceptionistLayout";
+import ReceptionistLogin from "../pages/receptionist/Login";
+import ReceptionistDashboard from "../pages/receptionist/Dashboard";
+
+import LabLayout from "../components/layout/LabLayout";
+import LabLogin from "../pages/lab/Login";
+import LabDashboard from "../pages/lab/Dashboard";
+
 import { useAuth } from "../context/AuthContext";
 
 function RequireRole({ role, children }) {
   const { role: currentRole, isAuthenticated, ready } = useAuth();
   if (!ready) return null;
   if (!isAuthenticated || currentRole !== role) {
-    return <Navigate to={role === "DOCTOR" ? "/doctor/login" : "/patient/login"} replace />;
+    if (role === "DOCTOR") return <Navigate to="/doctor/login" replace />;
+    if (role === "RECEPTIONIST") return <Navigate to="/receptionist/login" replace />;
+    if (role === "LAB_TECH") return <Navigate to="/lab/login" replace />;
+    return <Navigate to="/patient/login" replace />;
   }
   return children;
 }
@@ -41,6 +52,7 @@ export default function AppRouter() {
     <Routes>
       <Route path="/" element={<Landing />} />
 
+      {/* Doctor Portal */}
       <Route path="/doctor/login" element={<DoctorLogin />} />
       <Route
         path="/doctor"
@@ -62,6 +74,35 @@ export default function AppRouter() {
         <Route path="profile" element={<DoctorProfile />} />
       </Route>
 
+      {/* Receptionist Portal */}
+      <Route path="/receptionist/login" element={<ReceptionistLogin />} />
+      <Route
+        path="/receptionist"
+        element={
+          <RequireRole role="RECEPTIONIST">
+            <ReceptionistLayout />
+          </RequireRole>
+        }
+      >
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={<ReceptionistDashboard />} />
+      </Route>
+
+      {/* Lab Technician Portal */}
+      <Route path="/lab/login" element={<LabLogin />} />
+      <Route
+        path="/lab"
+        element={
+          <RequireRole role="LAB_TECH">
+            <LabLayout />
+          </RequireRole>
+        }
+      >
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={<LabDashboard />} />
+      </Route>
+
+      {/* Patient Portal */}
       <Route path="/patient/login" element={<PatientLogin />} />
       <Route path="/patient/register" element={<InvitationOnboarding />} />
       <Route

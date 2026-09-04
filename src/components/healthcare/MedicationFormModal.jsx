@@ -11,7 +11,7 @@ const empty = {
   frequency: "Once daily",
   timeOfDay: "MORNING",
   instructions: "",
-  startDate: "",
+  startDate: new Date().toISOString().split("T")[0],
   endDate: "",
 };
 

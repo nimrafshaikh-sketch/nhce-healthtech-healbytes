@@ -3,6 +3,7 @@ __pycache__/
 db.sqlite3
 .env
 staticfiles/
+protected_documents/
 .venv/
 venv/
 *.egg-info/

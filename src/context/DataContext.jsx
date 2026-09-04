@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useMemo, useReducer, useCallback } from "react";
 import { initialPatients, initialMedications, initialAlerts, initialCheckins } from "../data/demoData";
 import { createPatient as createPatientApi } from "../api/patients.api";
-import { verifyInvitation as verifyInvitationApi, generateInvitation as generateInvitationApi } from "../api/invitation.api";
+import { redeemInvitation as redeemInvitationApi, generateInvitation as generateInvitationApi } from "../api/invitation.api";
 import { submitCheckin as submitCheckinApi } from "../api/checkin.api";
 import { analyzeCheckinAI } from "../api/ai.api";
 import { resolveAlert as resolveAlertApi } from "../api/alerts.api";
@@ -92,10 +92,9 @@ export function DataProvider({ children }) {
     return patient;
   }, []);
 
-  const verifyInvitationCode = useCallback(
-    async (code) => {
-      const { patient } = await verifyInvitationApi(code, state.patients);
-      return patient;
+  const redeemInvitationCode = useCallback(
+    async (payload) => {
+      return await redeemInvitationApi(payload, state.patients);
     },
     [state.patients]
   );
@@ -211,7 +210,8 @@ export function DataProvider({ children }) {
   const value = {
     ...state,
     addPatient,
-    verifyInvitationCode,
+    redeemInvitationCode,
+    verifyInvitationCode: redeemInvitationCode,
     regenerateInvitation,
     submitCheckin,
     resolveAlert,

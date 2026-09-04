@@ -11,3 +11,8 @@ python-dotenv>=1.0
 PyJWT>=2.9
 requests>=2.32
 django-redis>=5.4
+# Real OCR for uploaded lab report / prescription images (apps.documents.ocr).
+# Requires the `tesseract-ocr` system binary (see backend/Dockerfile; on a
+# local dev machine: `brew install tesseract` or `apt install tesseract-ocr`).
+pytesseract>=0.3.10
+Pillow>=10.0

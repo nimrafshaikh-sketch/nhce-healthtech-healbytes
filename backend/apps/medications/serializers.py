@@ -5,16 +5,18 @@ from .models import Medication, MedicationReminderLog
 
 class MedicationSerializer(serializers.ModelSerializer):
     patient_name = serializers.CharField(source="patient.full_name", read_only=True)
+    prescribed_by_name = serializers.CharField(source="prescribed_by.get_full_name", read_only=True)
 
     class Meta:
         model = Medication
         fields = [
-            "id", "patient", "patient_name", "prescribed_by", "name", "dosage",
-            "frequency", "instructions", "start_date", "end_date",
+            "id", "patient", "patient_name", "prescribed_by", "prescribed_by_name",
+            "name", "dosage", "frequency", "instructions", "start_date", "end_date",
             "reminder_times", "reminders_enabled", "is_active",
             "created_at", "updated_at",
         ]
         read_only_fields = ["id", "prescribed_by", "created_at", "updated_at"]
+
 
     def validate_reminder_times(self, value):
         import re

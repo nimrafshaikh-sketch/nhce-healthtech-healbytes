@@ -9,7 +9,7 @@ from apps.medications.models import Medication
 from apps.patients.models import Patient
 from apps.patients.serializers import PatientSerializer
 
-from .models import QRScanLog
+from .models import QRAccessGrant, QRScanLog
 from .serializers import (
     QRGenerateResponseSerializer,
     QRVerifyRequestSerializer,
@@ -30,22 +30,36 @@ class QRGenerateView(APIView):
 
 
 @extend_schema(tags=["QR"], summary="Verify a scanned QR token and return authorized patient history "
-                                       "(assigned Doctor only - unchanged scope; every scan attempt is logged, "
-                                       "success or failure)",
+                                       "(assigned Doctor, or any Doctor presenting a valid signed QR - "
+                                       "the latter receives a time-bound consulting access grant, not "
+                                       "permanent access; every scan attempt is logged, success or failure)",
                request=QRVerifyRequestSerializer, responses=QRVerifyResponseSerializer)
 class QRVerifyView(APIView):
-    """Ownership rule stays exactly as originally approved: only the
-    patient's own assigned doctor may verify their QR code - NOT opened up
-    to Receptionist/Lab Tech (QR is clinical-history access, and Receptionist
-    has zero clinical-data access per the locked role matrix; Lab Tech's
-    access is scoped to assigned lab work only, not full patient history).
+    """Two authorization paths, never opened up to Receptionist/Lab Tech
+    (QR is clinical-history access, and Receptionist has zero clinical-data
+    access per the locked role matrix; Lab Tech's access is scoped to
+    assigned lab work only, not full patient history):
+
+    1. The patient's own assigned doctor: always authorized, no grant needed
+       (they already have standing access to everything about this patient).
+    2. Any OTHER doctor presenting a genuine, signature-valid, non-expired
+       QR token: this is the "multi-doctor consult" path (e.g. the patient
+       shows their QR to a new/covering doctor). This is treated as the
+       patient's own consent to share their record with that doctor for a
+       consultation - but the resulting authorization is a bounded-duration
+       QRAccessGrant (see apps.qr.models.QRAccessGrant), NOT permanent
+       access, and it never touches `patient.doctor_id` (the patient's
+       primary-doctor assignment is completely untouched by QR access).
+       All of that doctor's *subsequent* document/RAG access to this
+       patient (apps.documents.views) is authorized strictly against this
+       grant's expiry, not against the mere existence of a scan log row.
 
     Every verification attempt is logged via QRScanLog regardless of outcome:
-    invalid/expired/malformed token, patient not found, wrong doctor, or
-    success. Previously the first two cases logged nothing at all - fixed
-    here by making QRScanLog.patient nullable (a genuinely undecodable token
-    has no knowable patient) and by best-effort recovering the patient from
-    an expired-but-genuine token for the log (see tokens.peek_patient_id_for_audit_log).
+    invalid/expired/malformed token, patient not found, or success.
+    Previously the first two cases logged nothing at all - fixed here by
+    making QRScanLog.patient nullable (a genuinely undecodable token has no
+    knowable patient) and by best-effort recovering the patient from an
+    expired-but-genuine token for the log (see tokens.peek_patient_id_for_audit_log).
     """
     permission_classes = [permissions.IsAuthenticated, IsDoctor]
 
@@ -70,23 +84,28 @@ class QRVerifyView(APIView):
                                       failure_reason=f"Patient id {patient_id} not found.")
             return Response({"detail": "Patient not found."}, status=status.HTTP_400_BAD_REQUEST)
 
-        if patient.doctor_id != request.user.id:
-            QRScanLog.objects.create(patient=patient, scanned_by=request.user, success=False,
-                                      failure_reason="Doctor is not assigned to this patient.")
-            return Response({"detail": "You are not the assigned doctor for this patient."},
-                             status=status.HTTP_403_FORBIDDEN)
-
         QRScanLog.objects.create(patient=patient, scanned_by=request.user, success=True)
+
+        is_primary_doctor = patient.doctor_id == request.user.id
+        if not is_primary_doctor:
+            # Multi-doctor consult path: the patient presenting a genuine,
+            # signature-valid, non-expired QR to this doctor is treated as
+            # consent for a bounded consultation window - never permanent,
+            # never a change to patient.doctor_id.
+            QRAccessGrant.grant(patient=patient, doctor=request.user)
 
         from apps.checkins.serializers import DailyCheckinSerializer
         from apps.medications.serializers import MedicationSerializer
+        from apps.patients.clinical_brief import build_clinical_brief
 
         medications = Medication.objects.filter(patient=patient, is_active=True)[:20]
         checkins = DailyCheckin.objects.filter(patient=patient).order_by("-checkin_date")[:14]
+        brief_data = build_clinical_brief(patient)
 
         data = {
             "patient": PatientSerializer(patient).data,
             "recent_medications": MedicationSerializer(medications, many=True).data,
             "recent_checkins": DailyCheckinSerializer(checkins, many=True).data,
+            "clinical_brief": brief_data.get("clinical_brief"),
         }
         return Response(data)

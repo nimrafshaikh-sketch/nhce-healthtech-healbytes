@@ -90,19 +90,26 @@ class MyAnalyticsView(APIView):
         return Response(_build_analytics(patient))
 
 
-@extend_schema(tags=["Analytics"], summary="Doctor: AI-computed clinical history summary for an assigned patient")
+from apps.patients.clinical_brief import build_clinical_brief
+
+
+@extend_schema(tags=["Analytics"], summary="Doctor: AI-computed clinical history summary & grounded brief for an assigned patient")
 class PatientAISummaryView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsDoctor]
 
     def get(self, request, patient_id):
         patient = get_object_or_404(Patient, id=patient_id, doctor=request.user)
-        summary = get_patient_history_summary(patient)
-        if summary is None:
-            return Response(
-                {"detail": "AI engine is currently unavailable."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        return Response(summary)
+        clinical_brief_data = build_clinical_brief(patient)
+        ai_engine_summary = get_patient_history_summary(patient)
+
+        result = {
+            **clinical_brief_data,
+            "ai_engine_summary": ai_engine_summary,
+        }
+        if ai_engine_summary and "history" in ai_engine_summary:
+            result["history"] = ai_engine_summary["history"]
+            result["request_id"] = ai_engine_summary.get("request_id")
+        return Response(result)
 
 
 @extend_schema(tags=["Analytics"], summary="Patient: AI-computed clinical history summary for self")
@@ -111,10 +118,14 @@ class MyAISummaryView(APIView):
 
     def get(self, request):
         patient = get_object_or_404(Patient, user=request.user)
-        summary = get_patient_history_summary(patient)
-        if summary is None:
-            return Response(
-                {"detail": "AI engine is currently unavailable."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        return Response(summary)
+        clinical_brief_data = build_clinical_brief(patient)
+        ai_engine_summary = get_patient_history_summary(patient)
+
+        result = {
+            **clinical_brief_data,
+            "ai_engine_summary": ai_engine_summary,
+        }
+        if ai_engine_summary and "history" in ai_engine_summary:
+            result["history"] = ai_engine_summary["history"]
+            result["request_id"] = ai_engine_summary.get("request_id")
+        return Response(result)
