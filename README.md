@@ -1,272 +1,367 @@
-# HealBytes Backend
+# HealBytes
 
-Django + DRF backend covering: Doctor/Patient/Receptionist/Lab Tech auth,
-patient registration, invitation codes, medications & reminders, daily
-check-ins, alerts, QR verification, appointments, lab tests, and
-notifications, for the AI-Based Autonomous Healthcare Coordination and
-Follow-up Agent.
-
-This directory is self-contained and does not modify anything outside
-`backend/` (frontend, AI engine, or shared infra are owned by other
-team members).
+A healthcare coordination platform that turns daily patient check-ins into risk-prioritized, role-based follow-up — using a deterministic AI Engine, not guesswork.
 
 ---
 
-## 🏗️ System Architecture
+## What is HealBytes?
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)
-![Django](https://img.shields.io/badge/Django-5-092E20?logo=django&logoColor=white)
-![React](https://img.shields.io/badge/React-Vite-61DAFB?logo=react&logoColor=black)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![Celery](https://img.shields.io/badge/Celery-Redis-37814A?logo=celery&logoColor=white)
+HealBytes keeps a patient's medications, daily check-ins, lab tests, and appointments in one system instead of scattered across paper, spreadsheets, and phone calls. It's built around four connected roles — **Doctor, Patient, Receptionist, and Lab Technician** — each with its own workflow and its own view of the data it actually needs.
 
-HealBytes is a two-service system: a React SPA talking to a modular Django/DRF backend that owns every clinical record, and a **standalone, stateless FastAPI microservice** that turns a single check-in into a deterministic risk verdict. No LLM, no external AI API, and no vector database sit in the critical path today — every "AI" decision in this repo is a rule-based, fully explainable pipeline you can trace line-by-line, on purpose.
+The problem it addresses: routine follow-up is easy to miss. A small note in today's check-in ("I stopped taking the tablets," "the pain is worse than yesterday") can be an early warning sign, but no doctor has time to read every check-in personally. HealBytes solves this by scoring every check-in through a separate **AI Engine** — a deterministic, rule-based pipeline (not a chatbot or an opaque model) that combines current symptoms, a bounded look at recent trend, and medication adherence into a Low/Medium/High risk verdict, a recommended follow-up action, and a plain-language explanation. The backend uses that verdict to raise alerts and route notifications automatically, so doctors see the check-ins that matter most first.
 
-**Why it's built this way:**
+---
 
-- **The AI Engine never touches the database.** It receives a JSON snapshot from the backend, computes, and returns JSON — nothing more. Swap the scoring logic for a trained model later without touching Django, the DB, or the frontend.
-- **Two AI pipelines, not one blurry "AI layer."** A real-time **Risk Assessment Service** (check-in → score) and an on-demand, in-process **Clinical Intelligence Pipeline** (documents → evidence-grounded doctor brief) are kept structurally separate because they solve different problems.
-- **Every score is bounded and explainable.** Secondary signals (history trend, medication adherence) can only ever *nudge* a score by a few points — never flip a verdict on their own — and every generated brief is re-verified against the live database before it's considered final.
-- **Nothing is over-claimed.** No HIPAA/GDPR/SOC 2 claims, no "AI-generated" labels on deterministic templates, no microservice sprawl for its own sake.
+## Key Features
 
-### The system, end to end
+**Patient & Healthcare Management**
+- Patient registration and profiles, with caretaker contact details
+- Invitation-code based patient onboarding
+- Medication management with scheduled reminders
+- Daily patient check-ins (symptoms, pain level, vitals, mood)
+- Lab test requests, claiming, results, and doctor review
+- Appointment booking, rescheduling, confirmation, and cancellation
+- QR-code based, time-bounded doctor consult access
+
+**AI-Powered Intelligence**
+- Deterministic check-in risk assessment (Low / Medium / High) with a numeric score
+- Bounded historical-trend and medication-adherence adjustments
+- Deterministic follow-up action recommendations, with a plain-language explanation
+- Patient history summarization (trends, active medications, latest labs, adherence)
+- Document intelligence: OCR and entity extraction from uploaded medical documents
+- Evidence-grounded clinical brief with source citations, assembled from records and documents
+- Medication reconciliation and a unified, chronological patient timeline
+
+**Communication & Workflow**
+- Role-based workflows for Doctor, Patient, Receptionist, and Lab Technician
+- In-app alerts and automatic email routing based on risk level
+- Full email/notification audit log
+- JWT-based authentication with role- and object-level permissions
+
+---
+
+## How HealBytes Works
 
 ```mermaid
 flowchart TD
-    User(["User<br/>Doctor / Patient / Receptionist / Lab Tech"])
-    FE["Frontend<br/>React + Vite SPA"]
-    BE["Django Backend<br/>DRF · JWT Auth · Business Rules"]
-    AIE["AI Engine<br/>FastAPI · Risk Assessment Service"]
-    CIP["Clinical Intelligence Pipeline<br/>in-process Django services"]
-    Celery["Celery Worker + Beat"]
-    DB[("PostgreSQL / SQLite")]
+    U["Users<br/>Doctor · Patient · Receptionist · Lab Technician"]
+    FE["Frontend (React)"]
+    BE["Backend (Django REST API)"]
+    DB[("Database")]
+    AI["AI Engine (FastAPI)"]
+    OUT["Alerts / Recommendations / Notifications"]
 
-    User -->|HTTPS| FE
-    FE -->|"REST/JSON + JWT"| BE
-    BE -->|"POST /api/v1/analyze"| AIE
-    AIE -->|"risk · follow-up · explanation"| BE
-    BE --> CIP --> DB
-    BE --> DB
-    BE -->|async| Celery
-    BE -->|response| FE --> User
+    U --> FE --> BE
+    BE <--> DB
+    BE <--> AI
+    BE --> OUT --> U
 ```
 
-### Layers at a glance
-
-| Layer | What lives there | Status |
-|---|---|---|
-| Presentation | React + Vite SPA, role-based views | Implemented |
-| API | DRF views/serializers, JWT auth, RBAC | Implemented |
-| AI Engine | FastAPI, stateless, no DB access | Implemented |
-| Clinical Intelligence | Document intelligence, RAG, medication reconciliation, timeline, grounding — all in-process in Django | Implemented |
-| Async | Celery + Celery Beat for reminders & alert emails | Implemented |
-| Data | PostgreSQL (prod) / SQLite (dev) via Django ORM | Implemented |
-| Infra | Docker Compose (DB, Redis, backend, workers) | Partial — AI Engine & frontend not yet containerized |
-
-### Two pipelines, six agents each
-
-**Check-in Risk Assessment** *(AI Engine, per request)*:
-`Risk Baseline` → `Trend Detector` → `Medication Adherence` → `Risk Assessor (combine + clamp)` → `Follow-up Recommender` → `Explanation Service`
-
-**Clinical Brief** *(Django backend, on demand)*:
-`Document Intelligence (OCR)` → `Clinical Retrieval (RAG, semantic + keyword fallback)` → `Medication Intelligence` → `Patient Timeline` → `Clinical Brief Synthesizer` → `Grounding Verifier`
-
-Each stage is a plain, single-purpose function called in a fixed order by its orchestrator — not autonomous agents messaging each other. That's deliberate: every stage is independently testable, replaceable, and fails safe (an unreachable AI Engine degrades to `"unavailable"` rather than blocking a check-in; semantic retrieval automatically falls back to keyword search; every citation in a brief is re-verified against the database before being shown to a doctor).
-
-**📄 Full architecture reference:** [`ARCHITECTURE.md`](./ARCHITECTURE.md) — component-by-component responsibilities, the full 12-agent table with inputs/outputs/failure modes, end-to-end data flow, API boundaries, data architecture, security model, AI safety guarantees, scalability, observability, and the extensibility roadmap.
+- A user logs in through the React frontend with role-based access.
+- The frontend calls the Django REST API, authenticated with a JWT token.
+- The backend validates the request, applies role-based permissions, and reads/writes the database.
+- For a check-in, the backend forwards the relevant data to the AI Engine for analysis.
+- The AI Engine returns a risk level, score, and follow-up recommendation.
+- The backend stores that result and, depending on risk level, raises alerts or sends notifications.
+- The frontend reflects the updated state on the appropriate user's dashboard.
 
 ---
 
-## Stack
+## AI Engine
 
-Python 3.10+, Django 5, DRF, SimpleJWT, Celery + Celery Beat (django-celery-beat,
-database-backed schedule), Redis (broker + cache), drf-spectacular, Gunicorn,
-SQLite (dev) / PostgreSQL (prod).
+The AI Engine is a separate FastAPI service, deliberately isolated from the Django backend and its database. It exists as its own service so the clinical scoring logic can be developed, tested, and eventually upgraded independently of the rest of the platform — it never queries a database directly; every fact it needs is included in the request the backend sends it.
 
-## Project layout
+It provides two capabilities today, both fully deterministic and rule-based — **no LLM, no external AI API, and no trained ML model is in the loop yet**:
 
-```
-backend/
-  config/
-    settings/{base,dev,prod,test}.py
-    urls.py, celery.py, wsgi.py, asgi.py
-  apps/
-    core/            shared base models, permissions, exception handler
-    accounts/         Doctor/Patient/Receptionist/Lab Tech auth (custom User, JWT)
-    patients/         Patient profile + caretaker details, receptionist admin
-                       serializer/search, analytics
-    invitations/      Invitation code generate/redeem (Doctor or Receptionist)
-    medications/       Medication + reminder scheduling (Celery Beat)
-    checkins/           Daily check-ins + AI-engine stub integration
-    alerts/            Alert model + routing rules
-    qr/                 QR token generate/verify (assigned Doctor only)
-    notifications/     In-app notification records + email audit log
-    appointments/      Appointment booking/reschedule/confirm/cancel
-    labtests/           LabTestRequest + LabTestResult, claim/result/review flow
-  manage.py, requirements.txt, Dockerfile, .env.example
+- **Check-in risk assessment** (`POST /api/v1/analyze`) — scores a check-in from severity, duration, and symptom count, applies a bounded historical-trend adjustment and a bounded medication-adherence adjustment, then returns a risk level, follow-up action, and explanation.
+- **Patient history summary** (`POST /api/v1/history/summary`) — given a patient's supplied check-in, medication, lab, and appointment history, returns trend indicators, active medications, the latest lab result, and computed medication adherence.
+
+A related set of clinical-intelligence modules — document OCR, evidence retrieval, medication reconciliation, a patient timeline, and a grounding/safety check — runs inside the Django backend itself, not the AI Engine, since it needs direct database access. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for exactly how the two fit together and a full breakdown of every stage.
+
+```mermaid
+flowchart TD
+    A["Patient Check-in Data"] --> B["AI Engine (FastAPI)"]
+    B --> C["Risk Scoring +<br/>Trend & Adherence Adjustments"]
+    C --> D["Follow-up Recommendation<br/>+ Explanation"]
+    D --> E["Backend"]
+    E --> F["Alert / Notification to User"]
 ```
 
-## Setup (local dev, SQLite)
+---
 
+## Technology Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 19, Vite, React Router, Tailwind CSS |
+| Backend / API | Django 5, Django REST Framework, drf-spectacular (OpenAPI docs) |
+| AI Engine | Python, FastAPI, Uvicorn, Pydantic v2 |
+| Database | PostgreSQL (production), SQLite (local development) |
+| Authentication | JWT via djangorestframework-simplejwt |
+| Background Processing | Celery + Celery Beat, Redis broker |
+| Document Intelligence | Tesseract OCR (pytesseract), scikit-learn + NumPy (semantic retrieval) |
+| Testing | Django test framework (backend), pytest + httpx (AI Engine) |
+| Containerization & Orchestration | Docker, Docker Compose (PostgreSQL 16, Redis 7, Backend, Celery Worker, Celery Beat) |
+| Deployment | Gunicorn, Docker Compose, WhiteNoise |
+
+---
+
+## User Roles
+
+| Role | Purpose |
+|---|---|
+| Doctor | Manages assigned patients, reviews check-ins and alerts, prescribes medications, requests lab tests, reviews the AI clinical brief |
+| Patient | Submits daily check-ins, tracks medications and reminders, views lab results and appointments, generates a consult QR code |
+| Receptionist | Registers patients on a doctor's behalf, generates invitation codes, manages appointments — no clinical data access |
+| Lab Technician | Claims lab test requests and submits results — no access to a patient's broader record |
+
+---
+
+## Project Structure
+
+```text
+nhce-healthtech-healbytes/
+├── src/                  # React + Vite frontend — pages, components, API client
+├── backend/              # Django REST API — auth, patients, medications, check-ins, alerts, documents
+│   └── Dockerfile        # Container image definition for Django API & Celery workers (Python 3.11 + Tesseract OCR)
+├── ai-engine/            # FastAPI risk-assessment microservice (stateless, no database access)
+├── database/             # Reference PostgreSQL schema (01-schema.sql) and notes
+├── docker-compose.yml    # Multi-container orchestration (Postgres, Redis, backend, Celery worker & beat)
+├── README.md             # You are here
+└── ARCHITECTURE.md       # Full system and AI architecture reference
+```
+
+---
+
+## Docker & Container Architecture
+
+HealBytes uses **Docker** and **Docker Compose** to provide a reproducible, production-parity environment. The containerized stack encapsulates the database, cache, message broker, API server, and background asynchronous workers with automated healthchecks and dependency management.
+
+```mermaid
+flowchart TD
+    subgraph Docker Network ["healbytes-network (Docker Compose)"]
+        subgraph Data & Broker Layer
+            DB[("PostgreSQL 16 Alpine<br/>healbytes_db :5432<br/>[Volume: postgres_data]")]
+            REDIS[("Redis 7 Alpine<br/>healbytes_redis :6379<br/>[Volume: redis_data]")]
+        end
+
+        subgraph Application & Worker Layer
+            BE["Django Backend API<br/>healbytes_backend :8000<br/>(Django REST Framework + Gunicorn)"]
+            CW["Celery Worker<br/>healbytes_celery_worker<br/>(Async Alerts, Reminders, AI Hand-off)"]
+            CB["Celery Beat<br/>healbytes_celery_beat<br/>(Periodic Medication Scheduler)"]
+        end
+    end
+
+    FE["Frontend (Vite / React Dev Server)<br/>http://localhost:5173"] -->|REST API Calls| BE
+    AI["AI Engine (FastAPI)<br/>http://localhost:8001"] <-->|Risk Assessment| BE
+
+    BE -->|Healthchecked Dependency| DB
+    BE -->|Cache & Celery Broker| REDIS
+    CW -->|Task Processing| REDIS
+    CW -->|State & Persistence| DB
+    CB -->|Schedule Dispatch (1/min)| REDIS
+```
+
+### Containerized Services Breakdown
+
+| Service | Container Name | Base Image | Port | Purpose & Configuration |
+|---|---|---|---|---|
+| **`db`** | `healbytes_db` | `postgres:16-alpine` | `5432` | Relational database. Auto-initializes schema from `database/schema.sql`. Uses `postgres_data` persistent volume and `pg_isready` healthcheck. |
+| **`redis`** | `healbytes_redis` | `redis:7-alpine` | `6379` | In-memory cache and Celery message broker. Uses `redis_data` volume and `redis-cli ping` healthcheck. |
+| **`backend`** | `healbytes_backend` | Custom `backend/Dockerfile` (`python:3.11-slim`) | `8000` | Django 5 REST Framework API. Bundles Tesseract OCR (`tesseract-ocr`) and PostgreSQL headers (`libpq-dev`). Automatically runs `manage.py migrate` on startup. |
+| **`celery_worker`** | `healbytes_celery_worker` | Custom `backend/Dockerfile` | — | Asynchronous worker processing background jobs: email dispatches, risk alert routing, and medication reminder notifications. |
+| **`celery_beat`** | `healbytes_celery_beat` | Custom `backend/Dockerfile` | — | Periodic scheduler that runs every minute to evaluate and trigger active medication reminders across patients. |
+
+### Docker Healthcheck & Dependency Graph
+- The `backend`, `celery_worker`, and `celery_beat` services define `depends_on` conditions with `condition: service_healthy` for both `db` and `redis`.
+- Containers will only start processing once PostgreSQL is ready to accept connections and Redis responds to `PING`, preventing race conditions during startup.
+
+---
+
+## Getting Started
+
+You can run HealBytes either using **Docker Compose** (recommended for a full, production-like backend, database, and Celery stack) or via **Manual Local Setup** (ideal for rapid lightweight code editing).
+
+### Prerequisites
+- **Docker** & **Docker Compose v2+** (for containerized setup)
+- **Python 3.10+** (for manual local backend & AI Engine setup)
+- **Node.js 18+ & npm** (for frontend)
+
+### Clone Repository
+```bash
+git clone https://github.com/nimrafshaikh-sketch/nhce-healthtech-healbytes.git
+cd nhce-healthtech-healbytes
+```
+
+---
+
+### Option A: Running with Docker (Recommended)
+
+Run the full backend infrastructure (Postgres 16, Redis 7, Django REST API, Celery Worker, and Celery Beat) in isolated containers with a single command:
+
+#### 1. Configure Environment Variables
+```bash
+# Copy root environment variables
+cp .env.example .env
+
+# Optional: configure backend and AI engine envs if running them individually
+cp backend/.env.example backend/.env
+cp ai-engine/.env.example ai-engine/.env
+```
+
+#### 2. Build and Start Docker Containers
+```bash
+docker compose up --build -d
+```
+
+Check running container status:
+```bash
+docker compose ps
+```
+
+#### 3. Create a Django Superuser / Admin
+```bash
+docker compose exec backend python manage.py createsuperuser
+```
+
+#### 4. Start AI Engine & Frontend (Locally)
+While the backend stack runs in Docker:
+```bash
+# In terminal 1 (AI Engine):
+cd ai-engine
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
+uvicorn app.main:app --reload --port 8001
+
+# In terminal 2 (Frontend):
+npm install
+npm run dev:frontend
+```
+
+#### 5. Useful Docker Commands
+
+| Action | Command |
+|---|---|
+| View real-time logs across all containers | `docker compose logs -f` |
+| View backend or celery logs | `docker compose logs -f backend celery_worker` |
+| Run Django database migrations | `docker compose exec backend python manage.py migrate` |
+| Open an interactive Django shell | `docker compose exec backend python manage.py shell` |
+| Access PostgreSQL CLI inside container | `docker compose exec db psql -U healbytes -d healbytes` |
+| Restart all containers | `docker compose restart` |
+| Stop all containers | `docker compose down` |
+| Stop containers and reset database/volumes | `docker compose down -v` |
+
+---
+
+### Option B: Manual Local Setup (Without Docker)
+
+If you prefer running services directly on your host system with SQLite:
+
+#### Backend Setup (Local)
 ```bash
 cd backend
-python3 -m venv venv && source venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # adjust as needed
+cp .env.example .env
 python manage.py migrate
 python manage.py createsuperuser
 python manage.py runserver
 ```
+API available at `http://localhost:8000/api/`.
 
-API docs: `/api/docs/` (Swagger UI), `/api/redoc/`, raw schema at `/api/schema/`.
-
-## Running Celery (reminders, AI hand-off, alert routing)
-
-Requires Redis running locally (`redis-server`, or via the shared docker-compose
-once the infra teammate provides it).
-
+#### AI Engine Setup (Local)
 ```bash
-celery -A config worker -l info
-celery -A config beat -l info   # dispatches medication reminders every minute
+cd ai-engine
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+uvicorn app.main:app --reload --port 8001
+```
+Interactive docs at `http://localhost:8001/docs`.
+
+#### Frontend Setup (Local)
+```bash
+npm install
+cp .env.example .env
+npm run dev:frontend
+```
+Serves at the Vite dev URL (default `http://localhost:5173`).
+
+#### Running Everything Together (Concurrent Dev Mode)
+Once `backend/venv` and `ai-engine/.venv` exist, launch all three locally:
+```bash
+npm run dev
 ```
 
-## Tests
+---
 
+### Environment Variables Reference
+Three `.env.example` files define the configuration parameters:
+- **Root `.env.example`** — PostgreSQL credentials, Redis broker URL, backend secret key, AI Engine URL, and email backend settings used by Docker Compose.
+- **`backend/.env.example`** — Django secret key, database credentials, Redis URL, AI Engine endpoint, token expiry durations, and SMTP settings.
+- **`ai-engine/.env.example`** — Model version tags and log level (AI Engine is stateless and requires no database).
+
+---
+
+## API / Documentation
+
+- **Backend Swagger UI**: `http://localhost:8000/api/docs/`
+- **Backend ReDoc**: `http://localhost:8000/api/redoc/`
+- **Backend OpenAPI Schema**: `http://localhost:8000/api/schema/`
+- **AI Engine Interactive API Docs**: `http://localhost:8001/docs`
+- **Architecture & AI Pipeline Reference**: [`ARCHITECTURE.md`](./ARCHITECTURE.md)
+
+---
+
+## Testing
+
+**Backend**
 ```bash
+cd backend
 DJANGO_SETTINGS_MODULE=config.settings.test python manage.py test apps
 ```
+Covers authentication, invitations, patients, medications, check-ins and AI hand-off parsing, alert routing, QR access, appointments, lab tests, and the document intelligence / clinical-brief pipeline.
 
-101 tests covering auth, invitation generation/redemption (incl. 15-min
-expiry, and Receptionist-on-behalf-of-doctor reuse), patient scoping/permissions
-(incl. Receptionist create/search), medication CRUD + reminder dispatch
-(+ patient email), AI client response parsing (valid/invalid/timeout), check-in
-submission + full notification fan-out per the table above, alert
-acknowledge/resolve, QR generate/verify (incl. 15-min expiry, wrong-doctor
-rejection, and logging on every outcome including invalid tokens), the email
-audit-log endpoints, appointment booking/reschedule/confirm/cancel across all
-four roles, and the full lab test request/claim/result/review flow.
+**AI Engine**
+```bash
+cd ai-engine
+pip install -r requirements-dev.txt
+pytest
+```
+Covers request/response schema validation, the risk engine, trend detection, medication adherence, follow-up recommendations, explanations, and the history-summary endpoint.
 
-## Business-rule defaults (flagged for review)
+No automated test suite is configured for the frontend yet.
 
-- **Invitation codes** (`apps/invitations/models.py`): 8-char alphanumeric,
-  single-use, expire after `INVITATION_CODE_EXPIRY_MINUTES` (default **15 min**).
-- **QR tokens** (`apps/qr/tokens.py`): signed JWT (HS256, `SECRET_KEY`),
-  identifies one patient, expires after `QR_TOKEN_EXPIRY_MINUTES` (default **15 min**).
-  Verified server-side on scan; only the assigned doctor may redeem it.
-- **AI engine contract** (`apps/checkins/ai_client.py`): `POST {AI_ENGINE_URL}/analyze/`
-  → `{"riskLevel": "low"|"medium"|"high", "riskScore": 0.0-1.0, "reason": str,
-  "recommendedAction": str, "notificationRecipient": str}`. Stored on
-  `DailyCheckin` as `ai_risk_level`, `ai_risk_score`, `ai_notes` (= reason),
-  `ai_recommended_action`, `ai_notification_recipient`. If `AI_ENGINE_URL` is
-  unset, the call fails/times out, or the response is malformed, the check-in
-  still saves with `ai_risk_level="unavailable"` and no alert/email fires.
-  **`notificationRecipient` is informational/logged only** - the backend
-  always decides actual routing itself via risk level (see below), so the
-  two systems can never disagree about who gets notified.
-- **Alert routing & notifications** (`apps/alerts/rules.py`) - the in-app
-  Alert, the doctor email, the caretaker email, and the patient's own-result
-  email are four independent mechanisms, each gated by its own rule function,
-  because their trigger conditions don't line up 1:1:
+---
 
-  | AI risk  | In-app Alert (doctor dashboard) | Doctor email | Caretaker email | Patient result email |
-  |----------|----------------------------------|---------------|-------------------|------------------------|
-  | high     | yes (doctor + caretaker)         | **yes**       | no                | yes |
-  | medium   | yes (doctor)                     | no            | **yes**           | yes |
-  | low      | no                               | no            | **yes**           | yes |
-  | unavailable/pending | no                    | no            | no                | no |
+## High-Level System Flow
 
-  Doctor email is deliberately HIGH-only so the doctor isn't inundated with
-  email for every moderate check-in - medium still shows up on their
-  dashboard via `/api/alerts/`. Caretaker email is deliberately LOW/MEDIUM
-  only - high-risk stays an urgent doctor-facing case instead. The patient
-  always gets emailed their own result (reason + recommended action) except
-  when the AI engine didn't return a verdict.
-- **Caretaker**: no login/dashboard of their own (not in scope) - just
-  `caretaker_name` + `caretaker_email` fields captured when the doctor adds
-  a patient.
-- **Email audit trail**: every outbound email (doctor, patient, or
-  caretaker; alert, check-in result, or medication reminder), sent or
-  failed, is logged in `EmailNotificationLog` -
-  `/api/notifications/email-logs/` (doctor, scoped to their patients) and
-  `/api/notifications/email-logs/me/` (patient, their own only).
-- **Email backend**: `django.core.mail.backends.console.EmailBackend` by
-  default (dev/hackathon) - emails are fully composed and printed to the
-  server console/log, not actually delivered. Switch to real SMTP by setting
-  `EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend` plus
-  `EMAIL_HOST`/`EMAIL_PORT`/`EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD`/`EMAIL_USE_TLS`
-  in `.env` - no code changes needed. All sends go through Celery
-  (`apps/notifications/tasks.py`), never inline in the request/response cycle.
+1. A patient submits a daily check-in from the frontend.
+2. The backend authenticates the request and saves the check-in.
+3. The backend sends the check-in, medical context, and recent history to the AI Engine.
+4. The AI Engine returns a risk level, score, follow-up action, and explanation.
+5. The backend stores the result on the check-in record.
+6. Based on the risk level, the backend raises an in-app alert and/or routes emails to the doctor, caretaker, and patient.
+7. The doctor sees the check-in and alert on their dashboard, prioritized by risk.
 
-## API areas
+---
 
-`/api/auth/`, `/api/patients/`, `/api/invitations/`, `/api/medications/`,
-`/api/checkins/`, `/api/alerts/`, `/api/qr/`, `/api/notifications/`,
-`/api/analytics/`, `/api/appointments/`, `/api/labtests/` — full detail in `/api/docs/`.
+## Why HealBytes?
 
+- Centralizes patient information, medications, check-ins, lab tests, and appointments behind one role-based system instead of scattered tools.
+- Adds automated, explainable risk scoring to daily check-ins so care teams can prioritize follow-up instead of reviewing every entry manually.
+- Keeps the AI logic deterministic and auditable — every score traces back to a specific, inspectable rule, not a black box.
+- Separates the AI Engine from the backend so either can evolve independently, including a future move to a trained model.
+- Supports the distinct workflows of doctors, patients, receptionists, and lab technicians, with permissions scoped to each role.
 
-## Roles: Receptionist & Lab Technician (added on top of Doctor/Patient)
+---
 
-Both are internal clinic staff roles with **no public registration
-endpoint** - accounts are created via Django admin only (approved scope for
-this build; revisit if a self-service or admin-created-by-doctor flow is
-needed later).
+## Documentation
 
-- **Receptionist** is a purely administrative actor - **no access to
-  clinical information anywhere** (no `medical_notes`, no QR/history access,
-  no lab data). Can: search patients (`GET /api/patients/search/` - requires
-  `phone_number`, or both `name` and `date_of_birth`; never an unfiltered
-  list, to avoid enumerating the roster), create a patient on behalf of a
-  chosen doctor (`POST /api/patients/` with an explicit `doctor` field),
-  generate an invitation code for a patient they created (`POST
-  /api/invitations/generate/` with `patient_id` - the invitation's `doctor`
-  is taken from the patient's assignment, not the receptionist), and book/
-  reschedule/update any appointment for any doctor/patient.
-- **Lab Technician** only ever sees lab work assigned to them or sitting in
-  the unclaimed queue - never a patient's full record, never QR/history,
-  never appointments. Claims a request (`POST
-  /api/labtests/requests/<id>/claim/`), then submits its result (`POST
-  /api/labtests/requests/<id>/result/`).
-
-**QR verification stays exactly as originally scoped**: only the patient's
-*assigned* Doctor may verify a QR code - this was deliberately NOT opened up
-to Receptionist or Lab Tech, since QR access is clinical-history access and
-neither role has clinical-data permissions in the locked role matrix. The
-only QR change in this pass was a bug fix: every verification attempt is now
-logged via `QRScanLog` regardless of outcome (invalid/expired/malformed
-token, patient not found, wrong doctor, or success) - previously the first
-two cases logged nothing at all.
-
-## Appointment
-
-`apps/appointments/models.py` - `patient`, `doctor` (required), `created_by`,
-`scheduled_at`, `duration_minutes` (default 30), `reason`, `status`
-(scheduled/confirmed/completed/cancelled/no_show), `notes`.
-
-- Receptionist: full create/reschedule/status-update, any patient/doctor.
-- Doctor: create/reschedule for their own patients only, with themselves as
-  the doctor (`POST /api/appointments/`, `PATCH /api/appointments/<id>/`).
-- Patient: read-only on their own appointments, plus two narrow transitions -
-  `POST /api/appointments/<id>/confirm/` (scheduled → confirmed) and `POST
-  /api/appointments/<id>/cancel/` (scheduled/confirmed → cancelled). No
-  general write access.
-
-## Lab Tests
-
-`apps/labtests/models.py` - `LabTestRequest` (`patient`, `requested_by`,
-`test_name` - a fixed 8-value choice field: CBC, BLOOD_GLUCOSE,
-LIPID_PROFILE, HBA1C, KFT, LFT, TFT, URINALYSIS, chosen so the AI engine's
-reference-range lookup has a stable key to match against - **confirm with
-Member 4 that these match their table**; `assigned_lab_tech`, `priority`,
-`status` - requested/in_progress/completed/cancelled) and `LabTestResult`
-(one-to-one with the request; `result_text` only, no file upload since
-there's no file storage configured in this build).
-
-Flow: Doctor requests (`POST /api/labtests/requests/`) → sits in the
-unclaimed queue → a Lab Tech claims it (`POST .../claim/`, sets
-`assigned_lab_tech` + moves to `in_progress`) → that same tech submits the
-result (`POST .../result/`, moves to `completed`) → the requesting doctor
-reviews it (`POST /api/labtests/results/<id>/review/`). Doctor can cancel
-a still-open request (`POST .../cancel/`). **Receptionist has zero access
-to this app anywhere** - matches the locked role matrix (flat No on lab
-order/result), not just result content.
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — full system architecture, the AI Engine's pipeline, and the backend's clinical-intelligence pipeline in detail
+- [`HealBytes_MultiAgent_Architecture_Plan.md`](./HealBytes_MultiAgent_Architecture_Plan.md) — audit and design plan behind the clinical-intelligence pipeline
+- [`HealBytes_Phase2_MultiAgent_Implementation_Report.md`](./HealBytes_Phase2_MultiAgent_Implementation_Report.md) — implementation report for that pipeline
+- [`HealBytes_Independent_Verification_Report.md`](./HealBytes_Independent_Verification_Report.md) — independent security and functionality audit
+- [`database/README.md`](./database/README.md) — reference database schema notes
+- [`backend/README.md`](./backend/README.md) and [`ai-engine/README.md`](./ai-engine/README.md) — service-specific setup and implementation notes
