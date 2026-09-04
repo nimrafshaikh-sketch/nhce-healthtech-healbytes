@@ -3,7 +3,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.core.test_utils import auth_headers, make_doctor, make_lab_tech, make_patient_user, make_receptionist
-from apps.qr.models import QRScanLog
+from apps.qr.models import QRAccessGrant, QRScanLog
 from apps.patients.models import Patient
 from apps.qr.tokens import generate_qr_token
 
@@ -28,12 +28,47 @@ class QRApiTests(APITestCase):
         resp = self.client.post(reverse("qr-verify"), {"token": gen.data["token"]}, format="json", **self.doctor_headers)
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
         self.assertEqual(resp.data["patient"]["id"], self.patient.id)
+        # The assigned doctor already has standing access - no grant needed.
+        self.assertFalse(QRAccessGrant.objects.filter(patient=self.patient, doctor=self.doctor).exists())
 
-    def test_unassigned_doctor_forbidden(self):
+    def test_unassigned_doctor_with_valid_qr_gets_a_bounded_grant_not_permanent_access(self):
+        """This is the multi-doctor consult path: a doctor who is NOT the
+        patient's assigned doctor can still verify a genuine, currently
+        valid QR (the patient presenting it is the consent event) - but the
+        result must be a bounded QRAccessGrant, never unconditional/
+        permanent access, and it must never reassign the patient."""
         gen = self.client.post(reverse("qr-generate"), **self.patient_headers)
         resp = self.client.post(reverse("qr-verify"), {"token": gen.data["token"]}, format="json",
                                  **self.other_doctor_headers)
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["patient"]["id"], self.patient.id)
+
+        grant = QRAccessGrant.objects.filter(patient=self.patient, doctor=self.other_doctor).first()
+        self.assertIsNotNone(grant, "expected a QRAccessGrant to be created for the unassigned doctor")
+        self.assertTrue(grant.is_active())
+
+        from django.conf import settings
+        from django.utils import timezone
+        expected_expiry = timezone.now() + timezone.timedelta(hours=settings.QR_ACCESS_GRANT_HOURS)
+        self.assertAlmostEqual(
+            (grant.expires_at - expected_expiry).total_seconds(), 0, delta=5,
+        )
+
+        # The patient's primary-doctor assignment must be completely untouched.
+        self.patient.refresh_from_db()
+        self.assertEqual(self.patient.doctor_id, self.doctor.id)
+
+    def test_expired_grant_no_longer_authorizes_document_or_rag_access(self):
+        """A grant that has aged past its expiry must stop authorizing
+        access - has_active_grant must be a live, not one-time, check."""
+        from django.utils import timezone
+
+        grant = QRAccessGrant.objects.create(
+            patient=self.patient, doctor=self.other_doctor,
+            expires_at=timezone.now() - timezone.timedelta(hours=1),
+        )
+        self.assertFalse(grant.is_active())
+        self.assertFalse(QRAccessGrant.has_active_grant(patient=self.patient, doctor=self.other_doctor))
 
     def test_generated_token_expires_in_15_minutes(self):
         from django.conf import settings
@@ -83,10 +118,12 @@ class QRApiTests(APITestCase):
         self.client.post(reverse("qr-verify"), {"token": token}, format="json", **self.doctor_headers)
         self.assertTrue(QRScanLog.objects.filter(patient=self.patient, success=True).exists())
 
-        # wrong doctor
+        # other doctor with valid token logs success AND receives a bounded grant
         self.client.post(reverse("qr-verify"), {"token": token}, format="json", **self.other_doctor_headers)
         self.assertTrue(QRScanLog.objects.filter(
-            patient=self.patient, success=False, failure_reason__icontains="not assigned").exists())
+            patient=self.patient, scanned_by=self.other_doctor, success=True).exists())
+        self.assertTrue(QRAccessGrant.objects.filter(
+            patient=self.patient, doctor=self.other_doctor).exists())
 
         # malformed token - genuinely unknown patient, still logged with patient=None
         before = QRScanLog.objects.count()

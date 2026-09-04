@@ -1,6 +1,61 @@
 from django.db import models
+from django.utils import timezone
 
 from apps.core.models import TimeStampedModel
+
+
+class QRAccessGrant(TimeStampedModel):
+    """A bounded-duration authorization grant created when a doctor who is
+    NOT the patient's assigned doctor verifies a valid, signed, non-expired
+    patient QR token ("multi-doctor consult" access).
+
+    This is the sole authorization boundary for that consulting doctor's
+    subsequent document/RAG access to this patient. It is intentionally
+    time-bound and only ever created from a real, successful QR
+    verification (see apps.qr.views.QRVerifyView) - it is never permanent,
+    and creating one never changes `patient.doctor_id` (the patient's
+    primary-doctor assignment is untouched by QR access).
+    """
+
+    patient = models.ForeignKey(
+        "patients.Patient", on_delete=models.CASCADE, related_name="qr_access_grants",
+    )
+    doctor = models.ForeignKey(
+        "accounts.User", on_delete=models.CASCADE, related_name="qr_access_grants",
+    )
+    expires_at = models.DateTimeField()
+    purpose = models.CharField(max_length=50, default="qr_scan_consultation")
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["patient", "doctor", "expires_at"]),
+        ]
+
+    def is_active(self) -> bool:
+        return self.expires_at >= timezone.now()
+
+    @classmethod
+    def grant(cls, *, patient, doctor, hours=None, purpose="qr_scan_consultation"):
+        """Create a fresh time-bound grant. `hours` defaults to
+        settings.QR_ACCESS_GRANT_HOURS. Each QR verification creates a new
+        grant row (simple, fully auditable) rather than mutating an
+        existing one."""
+        from django.conf import settings
+
+        hours = settings.QR_ACCESS_GRANT_HOURS if hours is None else hours
+        return cls.objects.create(
+            patient=patient,
+            doctor=doctor,
+            expires_at=timezone.now() + timezone.timedelta(hours=hours),
+            purpose=purpose,
+        )
+
+    @classmethod
+    def has_active_grant(cls, *, patient, doctor) -> bool:
+        return cls.objects.filter(
+            patient=patient, doctor=doctor, expires_at__gte=timezone.now(),
+        ).exists()
 
 
 class QRScanLog(TimeStampedModel):

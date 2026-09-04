@@ -50,13 +50,13 @@ def send_caretaker_checkin_email(checkin):
     if not patient.caretaker_email:
         return None
 
-    subject = f"Check-in update for {patient.name}"
+    subject = f"Check-in update for {patient.full_name}"
     greeting_name = patient.caretaker_name or "there"
     symptoms_text = ", ".join(checkin.symptoms) if checkin.symptoms else "none reported"
     body = "\n".join([
         f"Hi {greeting_name},",
         "",
-        f"{patient.name} submitted a daily check-in on {checkin.checkin_date} "
+        f"{patient.full_name} submitted a daily check-in on {checkin.checkin_date} "
         f"with a '{checkin.ai_risk_level}' risk assessment - nothing urgent, just keeping you informed.",
         "",
         f"Symptoms: {symptoms_text}",
@@ -82,7 +82,7 @@ def send_patient_checkin_result_email(checkin):
 
     subject = f"Your check-in result for {checkin.checkin_date}"
     body = "\n".join([
-        f"Hi {patient.name},",
+        f"Hi {patient.full_name},",
         "",
         f"Your check-in on {checkin.checkin_date} was assessed as '{checkin.ai_risk_level}' risk.",
         "",
@@ -106,14 +106,14 @@ def send_doctor_alert_email(alert):
     """
     patient = alert.patient
     doctor = patient.doctor
-    if not doctor or not doctor.user.email:
+    if not doctor or not doctor.email:
         return None
 
-    subject = f"[HealBytes] {alert.risk_level} alert - {patient.name}"
+    subject = f"[HealBytes] {alert.get_severity_display()} alert - {patient.full_name}"
     body = "\n".join([
-        f"Hi Dr. {doctor.user.name or doctor.user.email},",
+        f"Hi Dr. {doctor.get_full_name() or doctor.email},",
         "",
-        f"A {alert.risk_level} alert was raised for {patient.name}.",
+        f"A {alert.severity} alert was raised for {patient.full_name}.",
         "",
         f"Reason: {alert.reason}",
         "",
@@ -122,11 +122,18 @@ def send_doctor_alert_email(alert):
     ])
     log = _send_and_log(
         recipient_type=EmailNotificationLog.RecipientType.DOCTOR,
-        recipient_user=doctor.user, recipient_email=doctor.user.email,
+        recipient_user=doctor, recipient_email=doctor.email,
         category=EmailNotificationLog.Category.ALERT, patient=patient,
-        subject=subject, body=body, checkin=alert.checkin, alert=alert, risk_level=alert.risk_level,
+        subject=subject, body=body, checkin=alert.checkin, alert=alert, risk_level=alert.severity,
     )
-
+    alert.email_sent = log.sent
+    alert.email_error = log.error
+    if log.sent:
+        from django.utils import timezone
+        alert.email_sent_at = timezone.now()
+        alert.save(update_fields=["email_sent", "email_sent_at", "email_error"])
+    else:
+        alert.save(update_fields=["email_sent", "email_error"])
     return log
 
 
@@ -140,7 +147,7 @@ def send_patient_medication_reminder_email(medication):
 
     subject = f"Reminder: take {medication.name}"
     body = "\n".join([
-        f"Hi {patient.name},",
+        f"Hi {patient.full_name},",
         "",
         f"This is a reminder to take {medication.name} ({medication.dosage}).",
         f"Instructions: {medication.instructions or 'as prescribed'}",

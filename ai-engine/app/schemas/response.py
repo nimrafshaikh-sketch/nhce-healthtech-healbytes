@@ -1,37 +1,37 @@
 """AI Engine output contract.
 
-Field names are literally `riskLevel` / `riskScore` / `reason` /
-`recommendedAction` / `notificationRecipient` (not `snake_case` translated
-via alias) so the JSON on the wire matches
-`backend/apps/checkins/ai_client.py`'s `_parse_response` exactly, with no
-alias/serialization step that could silently drift from the agreed
-contract. `extra="forbid"` (via `StrictModel`) keeps the response to
-exactly these five fields.
+Defines the structured, validated response returned by the AI Engine. Actual
+risk-scoring logic is not implemented in Phase 0 — this module only defines
+and validates the shape of outgoing data.
 """
+
+from datetime import datetime
+from typing import Optional
 
 from pydantic import Field
 
-from app.schemas.common import NonEmptyStr, NotificationRecipient, RiskLevel, StrictModel
+from app.schemas.common import AlertRecipient, NonEmptyStr, RiskLevel, StrictModel
 
 
 class AIAnalysisResponse(StrictModel):
     """Full response contract returned by the AI Engine to the backend.
 
-    Matches the docstring in `ai_client.py`:
-
-        {
-            "riskLevel": "low" | "medium" | "high",
-            "riskScore": float,              # 0.0-1.0
-            "reason": str,
-            "recommendedAction": str,
-            "notificationRecipient": str      # informational only
-        }
+    Every field below is always present in a serialized response, giving the
+    backend a single predictable shape to deserialize. `follow_up_action` and
+    `explanation` are allowed to be `null`; every other field is required.
     """
 
-    riskLevel: RiskLevel
-    riskScore: float = Field(
-        ..., ge=0.0, le=1.0, strict=True, description="0.0-1.0 scale; higher means more risk"
+    request_id: NonEmptyStr
+    timestamp: datetime
+
+    risk_level: RiskLevel
+    risk_score: float = Field(
+        ..., ge=0.0, le=100.0, strict=True, description="0-100 scale; higher means more risk"
     )
     reason: NonEmptyStr
-    recommendedAction: NonEmptyStr
-    notificationRecipient: NotificationRecipient
+
+    alert_recipient: AlertRecipient
+    follow_up_action: Optional[NonEmptyStr] = None
+    explanation: Optional[NonEmptyStr] = None
+
+    model_version: NonEmptyStr

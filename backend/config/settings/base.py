@@ -48,9 +48,11 @@ INSTALLED_APPS = [
     "apps.medical_history",
     "apps.appointments",
     "apps.labtests",
+    "apps.documents",
 ]
 
 MIDDLEWARE = [
+    "apps.core.middleware.SimpleCorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -184,6 +186,13 @@ AI_ENGINE_TIMEOUT_SECONDS = int(os.environ.get("AI_ENGINE_TIMEOUT_SECONDS", 8))
 # ---- Business-rule defaults (see apps.alerts.rules) ----
 INVITATION_CODE_EXPIRY_MINUTES = int(os.environ.get("INVITATION_CODE_EXPIRY_MINUTES", 15))
 QR_TOKEN_EXPIRY_MINUTES = int(os.environ.get("QR_TOKEN_EXPIRY_MINUTES", 15))
+# How long a non-assigned doctor's QR-derived consulting access (QRAccessGrant)
+# stays valid after a successful scan, before it must be re-verified with a
+# fresh QR code. Deliberately separate from QR_TOKEN_EXPIRY_MINUTES: the QR
+# *token* is single-use-short-lived (15 min) so it can't be screenshotted and
+# replayed later, but the *access it grants* to a consulting doctor needs to
+# outlast that scan long enough for one consultation (default 24h).
+QR_ACCESS_GRANT_HOURS = int(os.environ.get("QR_ACCESS_GRANT_HOURS", 24))
 
 # ---- Email (caretaker notifications) ----
 # Defaults to the console backend (emails are composed + logged, not sent)

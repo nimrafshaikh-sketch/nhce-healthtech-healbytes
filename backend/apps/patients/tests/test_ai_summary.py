@@ -89,13 +89,15 @@ class AISummaryEndpointTests(APITestCase):
         mock_summary.assert_called_once_with(self.patient)
 
     @patch("apps.patients.analytics_views.get_patient_history_summary")
-    def test_ai_engine_unavailable_returns_503(self, mock_summary):
+    def test_ai_engine_unavailable_returns_graceful_structured_fallback(self, mock_summary):
         mock_summary.return_value = None
         url = reverse("analytics-patient-ai-summary", args=[self.patient.id])
         resp = self.client.get(url, **self.doc_headers)
 
-        self.assertEqual(resp.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
-        self.assertIn("detail", resp.data)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn("clinical_brief", resp.data)
+        self.assertIn("patient_id", resp.data)
+
 
 
 class AIPatientHistorySerializationTests(APITestCase):

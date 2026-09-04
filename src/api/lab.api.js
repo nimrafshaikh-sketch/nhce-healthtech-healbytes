@@ -1,70 +1,88 @@
 import { apiFetch, USE_MOCK, mockDelay } from "./client";
-import { initialLabRequests, initialLabResults } from "../data/demoData";
-
-let mockLabRequests = [...initialLabRequests];
-let mockLabResults = [...initialLabResults];
 
 export async function orderLabTest(data) {
+  const patientId = data.patientId || data.patient;
+  const testName = data.testName || data.test_name || data.testType;
+  const priority = data.priority || "routine";
+  const notes = data.notes || "";
+
   if (USE_MOCK) {
-    await mockDelay(600);
-    const newReq = {
-      id: `req_${Date.now()}`,
-      status: "REQUESTED",
+    await mockDelay(300);
+    return {
+      id: Math.floor(Math.random() * 1000) + 1,
+      patient: patientId,
+      patientId,
+      test_name: testName,
+      testName,
+      priority,
+      notes,
+      status: "requested",
       createdAt: new Date().toISOString(),
-      ...data,
+      created_at: new Date().toISOString(),
     };
-    mockLabRequests.unshift(newReq);
-    return newReq;
   }
-  return apiFetch(`/lab/requests`, { method: "POST", body: data });
+  return apiFetch("/labtests/requests/", {
+    method: "POST",
+    body: {
+      patient: Number(patientId),
+      test_name: testName,
+      priority,
+      notes,
+    },
+  });
+}
+
+export async function getLabRequests(patientId) {
+  if (USE_MOCK) {
+    await mockDelay(200);
+    return [];
+  }
+  const endpoint = patientId ? `/labtests/requests/?patient=${patientId}` : "/labtests/requests/";
+  const data = await apiFetch(endpoint);
+  return Array.isArray(data) ? data : data.results || [];
+}
+
+export async function claimLabRequest(requestId) {
+  if (USE_MOCK) {
+    await mockDelay(250);
+    return { id: requestId, status: "in_progress" };
+  }
+  return apiFetch(`/labtests/requests/${requestId}/claim/`, { method: "POST" });
+}
+
+export async function recordLabResult(requestId, { resultText, notes = "" }) {
+  if (USE_MOCK) {
+    await mockDelay(300);
+    return { id: requestId, result_text: resultText, notes, status: "completed" };
+  }
+  return apiFetch(`/labtests/requests/${requestId}/result/`, {
+    method: "POST",
+    body: {
+      result_text: resultText,
+      notes,
+    },
+  });
 }
 
 export async function getLabQueue() {
-  if (USE_MOCK) {
-    await mockDelay(500);
-    return [...mockLabRequests];
-  }
-  return apiFetch(`/lab/queue`);
+  return getLabRequests();
 }
 
 export async function updateLabTestStatus(reqId, status) {
-  if (USE_MOCK) {
-    await mockDelay(400);
-    const req = mockLabRequests.find((r) => r.id === reqId);
-    if (req) req.status = status;
-    return req;
+  if (status === "in_progress") {
+    return claimLabRequest(reqId);
   }
-  return apiFetch(`/lab/requests/${reqId}/status`, { method: "PUT", body: { status } });
+  return { id: reqId, status };
 }
 
 export async function submitLabResult(reqId, resultData) {
-  if (USE_MOCK) {
-    await mockDelay(1000);
-    const req = mockLabRequests.find((r) => r.id === reqId);
-    if (req) {
-      req.status = "COMPLETED";
-      const newResult = {
-        id: `res_${Date.now()}`,
-        patientId: req.patientId,
-        doctorId: req.doctorId,
-        testType: req.testType,
-        status: "COMPLETED",
-        releaseStatus: "READY", // Needs doctor review
-        date: new Date().toISOString(),
-        ...resultData,
-      };
-      mockLabResults.unshift(newResult);
-      return newResult;
-    }
-    throw new Error("Request not found");
-  }
-  return apiFetch(`/lab/requests/${reqId}/results`, { method: "POST", body: resultData });
+  return recordLabResult(reqId, {
+    resultText: resultData.resultText || resultData.result_text || JSON.stringify(resultData),
+    notes: resultData.notes || "",
+  });
 }
 
 export async function getLabResultsForPatient(patientId) {
-  if (USE_MOCK) {
-    await mockDelay(400);
-    return mockLabResults.filter((r) => r.patientId === patientId);
-  }
-  return apiFetch(`/patients/${patientId}/lab-results`);
+  return getLabRequests(patientId);
 }
+

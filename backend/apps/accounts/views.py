@@ -26,6 +26,13 @@ class DoctorRegisterView(generics.CreateAPIView):
     permission_classes = [permissions.AllowAny]
 
 
+@extend_schema(tags=["Auth"], summary="List available doctors")
+class DoctorListView(generics.ListAPIView):
+    queryset = User.objects.filter(role=User.Role.DOCTOR, is_active=True)
+    serializer_class = UserSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+
 @extend_schema(tags=["Auth"], summary="Login (obtain JWT access/refresh pair)")
 class LoginView(TokenObtainPairView):
     serializer_class = EmailTokenObtainPairSerializer

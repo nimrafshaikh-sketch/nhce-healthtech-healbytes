@@ -31,8 +31,9 @@ import ReceptionistLogin from "../pages/receptionist/Login";
 import ReceptionistDashboard from "../pages/receptionist/Dashboard";
 import ReceptionistNewPatient from "../pages/receptionist/NewPatient";
 
-import LabTechLayout from "../components/layout/LabTechLayout";
-import LabTechLogin from "../pages/lab/Login";
+import LabLayout from "../components/layout/LabLayout";
+import LabLogin from "../pages/lab/Login";
+import LabDashboard from "../pages/lab/Dashboard";
 import LabTechQueue from "../pages/lab/Queue";
 import LabTechTestDetail from "../pages/lab/TestDetail";
 
@@ -55,7 +56,7 @@ export default function AppRouter() {
     <Routes>
       <Route path="/" element={<Landing />} />
 
-      {/* DOCTOR ROUTES */}
+      {/* Doctor Portal */}
       <Route path="/doctor/login" element={<DoctorLogin />} />
       <Route
         path="/doctor"
@@ -77,7 +78,7 @@ export default function AppRouter() {
         <Route path="profile" element={<DoctorProfile />} />
       </Route>
 
-      {/* PATIENT ROUTES */}
+      {/* Patient Portal */}
       <Route path="/patient/login" element={<PatientLogin />} />
       <Route path="/patient/register" element={<InvitationOnboarding />} />
       <Route
@@ -100,7 +101,7 @@ export default function AppRouter() {
         <Route path="profile" element={<PatientProfilePage />} />
       </Route>
 
-      {/* RECEPTIONIST ROUTES */}
+      {/* Receptionist Portal */}
       <Route path="/receptionist/login" element={<ReceptionistLogin />} />
       <Route
         path="/receptionist"
@@ -115,17 +116,18 @@ export default function AppRouter() {
         <Route path="patients/new" element={<ReceptionistNewPatient />} />
       </Route>
 
-      {/* LAB TECH ROUTES */}
-      <Route path="/lab/login" element={<LabTechLogin />} />
+      {/* Lab Technician Portal */}
+      <Route path="/lab/login" element={<LabLogin />} />
       <Route
         path="/lab"
         element={
           <RequireRole role="LAB_TECH">
-            <LabTechLayout />
+            <LabLayout />
           </RequireRole>
         }
       >
-        <Route index element={<Navigate to="queue" replace />} />
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={<LabDashboard />} />
         <Route path="queue" element={<LabTechQueue />} />
         <Route path="test/:id" element={<LabTechTestDetail />} />
       </Route>

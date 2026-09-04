@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Sun, Sunset, Moon, FileText } from "lucide-react";
 import MedicationCard from "../../components/healthcare/MedicationCard";
 import EmptyState from "../../components/ui/EmptyState";
 import { useAuth } from "../../context/AuthContext";
 import { useData } from "../../context/DataContext";
+import { getMedications } from "../../api/medication.api";
 import { getPrescriptionsForPatient } from "../../api/prescription.api";
+import { USE_MOCK } from "../../api/client";
 
 const GROUPS = [
   { key: "MORNING", label: "Morning", icon: Sun },
@@ -15,12 +17,31 @@ const GROUPS = [
 export default function Medicines() {
   const { user } = useAuth();
   const { getMedicationsForPatient, markMedicationStatus } = useData();
-  const medications = getMedicationsForPatient(user.id);
+  const [liveMedications, setLiveMedications] = useState(null);
   const [prescriptions, setPrescriptions] = useState([]);
 
   useEffect(() => {
-    getPrescriptionsForPatient(user.id).then(setPrescriptions).catch(console.error);
-  }, [user.id]);
+    let active = true;
+    if (!USE_MOCK) {
+      getMedications()
+        .then((data) => {
+          if (active) setLiveMedications(data);
+        })
+        .catch(console.error);
+    }
+    if (user?.id) {
+      getPrescriptionsForPatient(user.id)
+        .then((data) => {
+          if (active) setPrescriptions(Array.isArray(data) ? data : []);
+        })
+        .catch(console.error);
+    }
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  const medications = liveMedications !== null ? liveMedications : getMedicationsForPatient(user?.id);
 
   return (
     <div className="flex-1 px-5 pb-6 pt-8">
@@ -37,14 +58,14 @@ export default function Medicines() {
               <div key={p.id} className="bg-white rounded-xl shadow-sm border border-brand-200 p-4">
                 <div className="flex justify-between items-start mb-2">
                   <h3 className="font-bold text-brand-800">Prescription</h3>
-                  <span className="text-xs text-ink-400">{new Date(p.date).toLocaleDateString()}</span>
+                  <span className="text-xs text-ink-400">{new Date(p.date || p.created_at || Date.now()).toLocaleDateString()}</span>
                 </div>
                 <div className="space-y-2 mt-3">
-                  {p.medications.map((m, idx) => (
+                  {(p.medications || []).map((m, idx) => (
                     <div key={idx} className="bg-brand-50 p-3 rounded-lg border border-brand-100">
                       <p className="font-bold text-brand-900">{m.name} - {m.dosage}</p>
                       <p className="text-sm text-brand-700 mt-1">
-                        {m.frequency} for {m.duration} <br />
+                        {m.frequency} {m.duration ? `for ${m.duration}` : ""} <br />
                         <span className="text-xs opacity-80">{m.instructions}</span>
                       </p>
                     </div>

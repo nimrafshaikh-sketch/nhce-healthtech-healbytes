@@ -4,7 +4,7 @@ from django.utils import timezone
 
 @shared_task
 def process_checkin_ai_analysis(checkin_id):
-    """Sends a check-in to the AI engine (stub), stores the risk verdict
+    """Sends a check-in to the AI engine, stores the risk verdict
     (riskLevel/riskScore/reason/recommendedAction), then hands off to:
       - apps.alerts to route a doctor-facing Alert per the business rules
       - apps.notifications to email the caretaker (low/medium) and the
@@ -47,25 +47,10 @@ def process_checkin_ai_analysis(checkin_id):
 
 @shared_task
 def flag_missing_daily_checkins():
-    """Missing-check-in monitor (Member 3 / P1).
+    """Missing-check-in monitor.
 
-    Finds every linked patient (has a redeemed `user` account, so they're
-    actually able to submit check-ins) who has NOT submitted a `DailyCheckin`
-    for today, and raises one in-app doctor-facing Notification per patient
-    per day so the gap is visible on the dashboard.
-
-    Deliberately does NOT touch DailyCheckin.ai_risk_level / ai_risk_score in
-    any way, and does not create a DailyCheckin row - a missing check-in is
-    a missing check-in, not a risk verdict. There is nothing to "fail" into
-    here: if a patient has no check-in, this task simply has nothing to read
-    a risk from, and never invents one (fail-closed by construction, not by
-    a try/except around a risk calculation).
-
-    Reuses the existing apps.notifications.services.create_notification
-    in-app notification path (the same one apps.medications.tasks and
-    apps.alerts.tasks already use) instead of adding any new model/field -
-    see database/BACKEND_RECONCILIATION.md and the Member 3 plan note on not
-    blindly adding a schema change for "awaiting data".
+    Finds every linked patient who has NOT submitted a DailyCheckin for today,
+    and raises one in-app doctor-facing Notification per patient per day.
     """
     from apps.notifications.models import Notification
     from apps.notifications.services import create_notification
@@ -75,8 +60,6 @@ def flag_missing_daily_checkins():
 
     today = timezone.localdate()
 
-    # Only linked patients are expected to check in - an unredeemed invite
-    # (user is null) has no one able to submit one yet.
     expected_patients = Patient.objects.filter(user__isnull=False).select_related("doctor")
 
     checked_in_patient_ids = set(
@@ -91,19 +74,11 @@ def flag_missing_daily_checkins():
         if patient.id in checked_in_patient_ids:
             continue
 
-        # Patient.doctor FKs straight to the User model (role="doctor"),
-        # not to a separate Doctor profile - see apps.accounts.models.User.
-        doctor_user = patient.doctor
+        doctor_user = getattr(patient.doctor, "user", patient.doctor)
         if doctor_user is None:
-            # Data integrity edge case (Patient.doctor is a required FK, so
-            # this shouldn't normally happen) - skip rather than guess who
-            # to notify.
             skipped_no_doctor += 1
             continue
 
-        # Idempotency: this task may run more than once (retries, manual
-        # trigger) - don't spam a second "awaiting data" notification for
-        # the same patient on the same day.
         already_notified = Notification.objects.filter(
             user=doctor_user,
             related_object_type="missing_checkin",
@@ -114,12 +89,13 @@ def flag_missing_daily_checkins():
             already_flagged_today += 1
             continue
 
+        p_name = getattr(patient, "full_name", None) or getattr(patient, "name", "Patient")
         create_notification(
             user=doctor_user,
             notification_type=Notification.NotificationType.GENERAL,
-            title=f"Missing daily check-in: {patient.full_name}",
+            title=f"Missing daily check-in: {p_name}",
             body=(
-                f"{patient.full_name} has not submitted a daily check-in for {today}. "
+                f"{p_name} has not submitted a daily check-in for {today}. "
                 "No risk assessment is available for today - patient status is "
                 "awaiting data, not a risk level."
             ),

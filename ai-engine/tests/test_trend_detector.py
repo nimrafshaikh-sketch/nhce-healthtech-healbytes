@@ -14,11 +14,11 @@ from app.analysis.trend_detector import (
     MIN_CHECKINS_FOR_STRONG_TREND,
     STRONG_TREND_ADJUSTMENT,
     WEAK_TREND_ADJUSTMENT,
-    PreviousCheckInSummary,
     Trend,
     TrendConfidence,
     detect_trend,
 )
+from app.schemas.request import PreviousCheckInSummary
 
 _BASE_TIME = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
@@ -42,6 +42,7 @@ def _checkin(days_ago: int, severity: str, request_id: str = None) -> PreviousCh
         request_id=request_id or f"req-{days_ago}",
         timestamp=_BASE_TIME - timedelta(days=days_ago),
         severity=severity,
+        risk_level=None,
     )
 
 

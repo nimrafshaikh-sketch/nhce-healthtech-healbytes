@@ -44,48 +44,16 @@ overall score):
       baseline score (see `risk_engine.SEVERITY_SCORES[SeverityLevel.MILD]`),
       so historical trend can only nudge, never dominate or override, the
       current reported condition.
-
-ORPHANED as of Phase 6: the agreed backend wire contract
-(`backend/apps/checkins/ai_client.py`, `feature/backend` branch) does not
-send historical check-in data, so nothing in the live `/analyze/` pipeline
-currently calls `detect_trend`. This module is kept, working and tested, in
-case a future contract revision reintroduces a `historical_context`-style
-field — see `README.md`'s Phase 6 section for the full explanation. Its
-`SeverityLevel`/`PreviousCheckInSummary` types are now defined locally
-below (decoupled from `app/schemas/request.py`, which no longer has them)
-purely so this module keeps working standalone.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum
 from typing import List
 
-# --- Local, decoupled types (see module docstring) -----------------------
-# These previously lived in app/schemas/request.py / app/schemas/common.py
-# and were removed from the live request contract in Phase 6. Redefined
-# here only so this orphaned heuristic remains importable and testable.
-
-
-class SeverityLevel(str, Enum):
-    """Self-reported severity of a check-in. Not part of the live Phase 6
-    request contract; kept here only for this orphaned module."""
-
-    MILD = "mild"
-    MODERATE = "moderate"
-    SEVERE = "severe"
-
-
-@dataclass(frozen=True)
-class PreviousCheckInSummary:
-    """A compact record of a prior check-in. Not part of the live Phase 6
-    request contract; kept here only for this orphaned module."""
-
-    request_id: str
-    timestamp: datetime
-    severity: SeverityLevel
+from app.schemas.common import SeverityLevel
+from app.schemas.request import PreviousCheckInSummary
 
 # --- Evidence thresholds (documented, hand-picked; not clinically derived) ----
 

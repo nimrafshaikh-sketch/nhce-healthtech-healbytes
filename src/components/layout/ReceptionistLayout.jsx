@@ -1,72 +1,77 @@
 import React from "react";
-import { Outlet, useNavigate, useLocation } from "react-router-dom";
+import { Outlet, NavLink, useNavigate } from "react-router-dom";
+import { Users, UserPlus, LogOut, HeartPulse } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
-import { Users, LogOut, Activity } from "lucide-react";
+import Button from "../ui/Button";
 
 export default function ReceptionistLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
 
-  const handleLogout = () => {
+  function handleLogout() {
     logout();
-    navigate("/");
-  };
-
-  const navItems = [
-    { name: "Dashboard", path: "/receptionist/dashboard", icon: Users },
-  ];
+    navigate("/receptionist/login");
+  }
 
   return (
-    <div className="flex h-screen bg-canvas">
-      {/* Sidebar */}
-      <aside className="w-64 border-r border-ink-300/20 bg-white flex flex-col">
-        <div className="flex h-16 items-center px-6 border-b border-ink-300/20">
-          <Activity className="text-brand-600 mr-2" size={24} />
-          <span className="font-semibold text-lg text-ink-900">HealBytes Desk</span>
-        </div>
-        
-        <div className="p-4 flex-1">
-          <div className="mb-6 px-3">
-            <p className="text-sm font-medium text-ink-900">{user?.name}</p>
-            <p className="text-xs text-ink-500">Receptionist</p>
-          </div>
-          
-          <nav className="space-y-1">
-            {navItems.map((item) => {
-              const isActive = location.pathname.startsWith(item.path);
-              const Icon = item.icon;
-              return (
-                <button
-                  key={item.name}
-                  onClick={() => navigate(item.path)}
-                  className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                    isActive
-                      ? "bg-brand-50 text-brand-700"
-                      : "text-ink-600 hover:bg-ink-100 hover:text-ink-900"
-                  }`}
-                >
-                  <Icon className="mr-3" size={18} />
-                  {item.name}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-        
-        <div className="p-4 border-t border-ink-300/20">
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center px-3 py-2 text-sm font-medium text-red-600 rounded-lg hover:bg-red-50 transition-colors"
-          >
-            <LogOut className="mr-3" size={18} />
-            Sign Out
-          </button>
-        </div>
-      </aside>
+    <div className="min-h-screen bg-canvas">
+      {/* Top Navigation */}
+      <header className="sticky top-0 z-30 border-b border-ink-100 bg-white/95 backdrop-blur">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-700 text-white shadow-sm shadow-brand-700/20">
+                <HeartPulse size={18} />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-ink-900 leading-tight">HealBytes</p>
+                <span className="inline-flex items-center text-[10px] font-semibold text-brand-700 bg-brand-50 px-1.5 py-0.2 rounded">
+                  Reception Desk
+                </span>
+              </div>
+            </div>
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-y-auto bg-canvas">
+            <nav className="hidden sm:flex items-center gap-2">
+              <NavLink
+                to="/receptionist/dashboard"
+                className={({ isActive }) =>
+                  `flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    isActive ? "bg-brand-50 text-brand-800" : "text-ink-600 hover:bg-canvas-soft"
+                  }`
+                }
+              >
+                <Users size={15} />
+                Patient Services & Appointments
+              </NavLink>
+              <NavLink
+                to="/receptionist/patients/new"
+                className={({ isActive }) =>
+                  `flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    isActive ? "bg-brand-50 text-brand-800" : "text-ink-600 hover:bg-canvas-soft"
+                  }`
+                }
+              >
+                <UserPlus size={15} />
+                New Registration
+              </NavLink>
+            </nav>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="text-right hidden sm:block">
+              <p className="text-xs font-semibold text-ink-900">{user?.first_name || user?.username || "Reception Staff"}</p>
+              <p className="text-[10px] text-ink-400">Front Desk Officer</p>
+            </div>
+            <Button variant="ghost" size="sm" onClick={handleLogout} className="text-ink-500 hover:text-red-600">
+              <LogOut size={16} />
+              <span className="hidden sm:inline ml-1.5">Sign Out</span>
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <Outlet />
       </main>
     </div>

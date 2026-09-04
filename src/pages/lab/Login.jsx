@@ -1,80 +1,97 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { FlaskConical, ArrowRight } from "lucide-react";
+import Input from "../../components/ui/Input";
+import Button from "../../components/ui/Button";
 import { useAuth } from "../../context/AuthContext";
-import { FlaskConical, Lock, Mail } from "lucide-react";
 
-export default function Login() {
-  const [email, setEmail] = useState("lab@healbytes.demo");
-  const [password, setPassword] = useState("demo123");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  
-  const { login } = useAuth();
+export default function LabLogin() {
+  const { login, status, error } = useAuth();
   const navigate = useNavigate();
+  const [form, setForm] = useState({
+    email: "labtech@healbytes.local",
+    password: "LabTechPass123!",
+  });
 
-  const handleSubmit = async (e) => {
+  async function handleSubmit(e) {
     e.preventDefault();
-    setLoading(true);
-    setError("");
     try {
-      await login("LAB_TECH", { email, password });
-      navigate("/lab/queue");
+      await login("LAB_TECH", form);
+      navigate("/lab/dashboard");
     } catch (err) {
-      setError(err.message || "Failed to login");
-    } finally {
-      setLoading(false);
+      // Handled in AuthContext
     }
-  };
+  }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-canvas p-6">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-card p-8">
-        <div className="flex justify-center mb-8">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
-            <FlaskConical size={24} />
+    <div className="grid min-h-screen bg-canvas lg:grid-cols-2">
+      <div className="hidden flex-col justify-between bg-purple-900 p-10 text-white lg:flex">
+        <div className="flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10">
+            <FlaskConical size={18} />
           </div>
+          <span className="text-lg font-bold">HealBytes</span>
         </div>
-        <h1 className="text-2xl font-bold text-center text-ink-900 mb-2">Lab Portal</h1>
-        <p className="text-center text-ink-500 mb-8">Sign in to manage lab requests</p>
-        
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {error && <div className="p-3 text-sm text-red-600 bg-red-50 rounded-lg">{error}</div>}
-          
-          <div>
-            <label className="block text-sm font-medium text-ink-700 mb-1">Email</label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" size={18} />
-              <input 
-                type="email" 
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-ink-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
-                required
-              />
+        <div className="max-w-sm">
+          <p className="text-2xl font-semibold leading-snug">
+            Clinical Diagnostic Laboratory.
+          </p>
+          <p className="mt-3 text-sm text-purple-200">
+            Process physician diagnostic test orders, claim specimens, and publish validated laboratory findings.
+          </p>
+        </div>
+        <p className="text-xs text-purple-300">HealBytes — Diagnostic Lab</p>
+      </div>
+
+      <div className="flex items-center justify-center p-6 sm:p-10">
+        <form onSubmit={handleSubmit} className="w-full max-w-sm">
+          <div className="mb-8 flex items-center gap-2 lg:hidden">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-700 text-white">
+              <FlaskConical size={18} />
             </div>
+            <span className="text-lg font-bold text-ink-900">HealBytes</span>
           </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-ink-700 mb-1">Password</label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" size={18} />
-              <input 
-                type="password" 
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-ink-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
-                required
-              />
-            </div>
+
+          <h1 className="text-xl font-semibold text-ink-900">Laboratory Sign In</h1>
+          <p className="mt-1 text-sm text-ink-500">Sign in with laboratory technician credentials.</p>
+
+          <div className="mt-6 space-y-4">
+            <Input
+              label="Lab Tech Email"
+              type="email"
+              name="email"
+              autoComplete="username"
+              value={form.email}
+              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+              required
+            />
+            <Input
+              label="Password"
+              type="password"
+              name="password"
+              autoComplete="current-password"
+              value={form.password}
+              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+              required
+            />
           </div>
-          
-          <button 
-            type="submit" 
-            disabled={loading}
-            className="w-full bg-brand-600 text-white font-medium py-2.5 rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50"
+
+          {error && <p className="mt-3 text-sm text-risk-high">{error}</p>}
+
+          <Button
+            type="submit"
+            fullWidth
+            size="lg"
+            className="mt-6 bg-purple-700 hover:bg-purple-800 text-white"
+            loading={status === "loading"}
+            rightIcon={<ArrowRight size={16} />}
           >
-            {loading ? "Signing In..." : "Sign In"}
-          </button>
+            Sign in to Lab Worklist
+          </Button>
+
+          <p className="mt-4 text-center text-xs text-ink-400">
+            Lab technician credentials pre-filled for testing.
+          </p>
         </form>
       </div>
     </div>
