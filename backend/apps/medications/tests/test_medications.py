@@ -77,3 +77,56 @@ class MedicationReminderTaskTests(APITestCase):
         dispatch_due_medication_reminders()
         self.assertEqual(MedicationReminderLog.objects.filter(medication=med).count(), 1)
         self.assertEqual(len(mail.outbox), 1)
+
+
+class AcknowledgeReminderTests(APITestCase):
+    """Feature 3 integration check: patient marks a dispatched reminder as
+    Taken (acknowledged), and that update is correctly linked to the right
+    patient/medication - the same MedicationReminderLog row that
+    apps.checkins.ai_client._build_medical_context and the analytics/AI
+    summary endpoints read adherence from (see apps.patients.analytics_views
+    and the AI Engine's medication_adherence module). No new adherence model
+    is introduced; acknowledgment of the existing log row IS the adherence
+    signal.
+    """
+
+    def setUp(self):
+        self.doctor = make_doctor()
+        self.patient_user = make_patient_user()
+        self.patient = Patient.objects.create(doctor=self.doctor, full_name="Rae", user=self.patient_user)
+        self.patient_headers = auth_headers(self.patient_user)
+
+    def _reminder_log(self, patient=None):
+        from django.utils import timezone
+
+        from apps.medications.models import Medication, MedicationReminderLog
+
+        patient = patient or self.patient
+        med = Medication.objects.create(
+            patient=patient, prescribed_by=self.doctor, name="Lisinopril", dosage="10mg",
+            frequency="once_daily", start_date="2026-01-01", reminder_times=["08:00"],
+        )
+        return MedicationReminderLog.objects.create(medication=med, scheduled_for=timezone.now())
+
+    def test_patient_can_acknowledge_own_reminder(self):
+        log = self._reminder_log()
+
+        resp = self.client.post(reverse("reminder-acknowledge", args=[log.id]), **self.patient_headers)
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        log.refresh_from_db()
+        self.assertIsNotNone(log.acknowledged_at)
+        # Correctly linked to this patient's own medication - the same row
+        # the adherence calculation reads from.
+        self.assertEqual(log.medication.patient_id, self.patient.id)
+
+    def test_patient_cannot_acknowledge_another_patients_reminder(self):
+        other_user = make_patient_user(email="other@example.com", username="other")
+        other_patient = Patient.objects.create(doctor=self.doctor, full_name="Sam", user=other_user)
+        log = self._reminder_log(patient=other_patient)
+
+        resp = self.client.post(reverse("reminder-acknowledge", args=[log.id]), **self.patient_headers)
+
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+        log.refresh_from_db()
+        self.assertIsNone(log.acknowledged_at)
