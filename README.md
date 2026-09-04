@@ -365,4 +365,3 @@ No automated test suite is configured for the frontend yet.
 - [`HealBytes_Independent_Verification_Report.md`](./HealBytes_Independent_Verification_Report.md) — independent security and functionality audit
 - [`database/README.md`](./database/README.md) — reference database schema notes
 - [`backend/README.md`](./backend/README.md) and [`ai-engine/README.md`](./ai-engine/README.md) — service-specific setup and implementation notes
-

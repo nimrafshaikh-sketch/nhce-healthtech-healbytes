@@ -9,12 +9,32 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 from django.utils import timezone
 
+from apps.documents.embeddings import retrieve_patient_context_semantic
 from apps.documents.models import MedicalDocument
 from apps.documents.rag import retrieve_patient_context
+from apps.medications.intelligence import analyze_patient_medications
 from apps.medications.models import Medication
 from apps.labtests.models import LabTestRequest, LabTestResult
 from apps.checkins.models import DailyCheckin
 from apps.appointments.models import Appointment
+from apps.patients.grounding import verify_clinical_brief_grounding
+from apps.patients.timeline import build_patient_timeline
+
+
+def _retrieve_rag_evidence(patient_id: int, query: str, top_k: int = 4):
+    """Phase 2: semantic (embedding) retrieval first, falling back to the
+    original keyword/TF-cosine engine - same pattern as
+    DocumentRAGSearchView (apps.documents.views), reused here rather than
+    duplicated logic, kept intentionally thin so the Clinical Brief and the
+    standalone RAG search endpoint can never silently disagree about which
+    method ran."""
+    results = retrieve_patient_context_semantic(patient_id=patient_id, query=query, top_k=top_k)
+    if results is not None:
+        return results, "semantic_embedding_lsa"
+    results = retrieve_patient_context(patient_id=patient_id, query=query, top_k=top_k)
+    for r in results:
+        r.setdefault("retrieval_method", "keyword_tf_cosine_fallback")
+    return results, "keyword_tf_cosine_fallback"
 
 
 def build_clinical_brief(patient) -> Dict[str, Any]:
@@ -156,8 +176,11 @@ def build_clinical_brief(patient) -> Dict[str, Any]:
             "view_url": latest.get("view_url"),
         })
 
-    # 5. Patient-Scoped RAG Evidence Retrieval
-    rag_excerpts = retrieve_patient_context(patient_id, "HbA1c Glucose Diabetes Medication Blood Pressure Symptoms", top_k=4)
+    # 5. Patient-Scoped RAG Evidence Retrieval (Phase 2: semantic embedding
+    # retrieval first, keyword/TF-cosine as the explicit fallback)
+    rag_excerpts, rag_retrieval_method = _retrieve_rag_evidence(
+        patient_id, "HbA1c Glucose Diabetes Medication Blood Pressure Symptoms", top_k=4
+    )
 
     # 6. Recent Clinical Events & Check-ins
     recent_events = []
@@ -185,6 +208,14 @@ def build_clinical_brief(patient) -> Dict[str, Any]:
     if not conditions:
         conditions.add("Under Routine Clinical Monitoring")
 
+    # 7b. Medication Intelligence (Phase 3) - deterministic reconciliation,
+    # never modifies Medication records (see apps.medications.intelligence).
+    medication_intelligence = analyze_patient_medications(patient_id)
+
+    # 7c. Patient Timeline (Phase 4) - deterministic chronological
+    # aggregation over the same real records already used above.
+    patient_timeline = build_patient_timeline(patient)
+
     # 8. Controlled AI Observations & Synthesis Narrative
     ai_observations = []
     if trends:
@@ -192,6 +223,9 @@ def build_clinical_brief(patient) -> Dict[str, Any]:
             ai_observations.append(f"AI Observation: {t['trend_statement']}")
     if any(e.get("risk_verdict") in ["medium", "high"] for e in recent_events):
         ai_observations.append("AI Observation: Patient experienced symptoms of clinical interest on recent check-ins.")
+    for obs in medication_intelligence["observations"]:
+        if obs["requires_clinician_review"]:
+            ai_observations.append(f"AI Observation (Medication Intelligence): {obs['observation']}")
     if not ai_observations:
         ai_observations.append("AI Observation: Patient parameters appear stable across recorded observations.")
 
@@ -211,6 +245,26 @@ def build_clinical_brief(patient) -> Dict[str, Any]:
 
     narrative = " ".join(narrative_parts)
 
+    # 9. Unified Sources list - every document-derived claim in this brief
+    # must be traceable here (active medications' prescription-record
+    # citations, lab source documents, RAG excerpt citations, and the
+    # source documents behind any medication-intelligence observation).
+    sources = []
+    for m in active_meds:
+        sources.append({"type": "medication_record", "id": m["id"], "citation": m["source_citation"]})
+    for lab in recent_labs:
+        if lab.get("document_id"):
+            sources.append({"type": "document", "id": lab["document_id"], "citation": f"{lab['source_title']} (Doc #{lab['document_id']})", "view_url": lab.get("view_url")})
+    for excerpt in rag_excerpts:
+        sources.append({
+            "type": "document",
+            "id": excerpt.get("document_id"),
+            "citation": excerpt.get("citation_tag"),
+            "view_url": excerpt.get("view_url"),
+        })
+    for obs in medication_intelligence["observations"]:
+        sources.append({"type": "medication_intelligence_observation", "citation": obs["source"], "evidence": obs["evidence"]})
+
     brief_data = {
         "narrative": narrative,
         "current_conditions": sorted(list(conditions)),
@@ -221,8 +275,23 @@ def build_clinical_brief(patient) -> Dict[str, Any]:
         "recent_clinical_events": recent_events,
         "ai_observations": ai_observations,
         "rag_evidence_excerpts": rag_excerpts,
+        "rag_retrieval_method": rag_retrieval_method,
         "source_documents": doc_sources,
+        "medication_intelligence": medication_intelligence,
+        "patient_timeline": patient_timeline,
+        "sources": sources,
     }
+
+    # 10. Safety / Grounding verification (Phase 7) - the mandatory final
+    # step before this brief is considered complete. Independently
+    # re-checks every cited medication/document id against the database
+    # (not just against the brief's own claims) and removes any AI
+    # Observation that cannot be traced to a real, present record. See
+    # apps.patients.grounding module docstring.
+    grounding_report = verify_clinical_brief_grounding(patient, brief_data)
+    brief_data["grounding"] = grounding_report
+    if grounding_report["unsupported_claims_removed"]:
+        brief_data["ai_observations"] = grounding_report["grounded_ai_observations"]
 
     return {
         "patient_id": patient_id,
