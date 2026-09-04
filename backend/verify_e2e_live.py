@@ -20,7 +20,7 @@ def log(step, msg, success=True):
 
 def main():
     print("=" * 90)
-    print("HEALBYTES MASTER LIVE END-TO-END VERIFICATION (PHASE 1 + PHASE 2)")
+    print("HEALBYTES MASTER LIVE END-TO-END VERIFICATION (PHASES 1-5 + 7: Documents, Semantic RAG, Medication Intelligence, Timeline, Clinical Brief, Grounding)")
     print("=" * 90)
 
     session = requests.Session()
@@ -352,7 +352,19 @@ def main():
         assert chunk["patient_id"] == patient_x_id, f"Cross-patient leak! Found chunk for {chunk['patient_id']} in Patient X search"
         assert "view_url" in chunk
         assert "citation_tag" in chunk
-    log(23, f"Patient-Scoped RAG retrieval: Retrieved {len(rag_results)} grounded chunks strictly isolated to Patient ID={patient_x_id}")
+    # Phase 2: real embedding retrieval is primary; Patient X has multiple
+    # indexed documents by this point, so the semantic path (not the
+    # keyword fallback) must actually be what ran and be labeled as such -
+    # never silently reported as one method while another actually ran.
+    retrieval_method = rag_data.get("retrieval_method")
+    assert retrieval_method in ("semantic_embedding_lsa", "keyword_tf_cosine_fallback"), f"Unexpected retrieval_method: {retrieval_method}"
+    assert retrieval_method == "semantic_embedding_lsa", (
+        f"Expected real semantic (embedding) retrieval to run for a multi-document patient, got '{retrieval_method}' instead"
+    )
+    for chunk in rag_results:
+        assert chunk.get("retrieval_method") == retrieval_method
+    log(23, f"Patient-Scoped RAG retrieval: Retrieved {len(rag_results)} grounded chunks strictly isolated to Patient ID={patient_x_id} "
+             f"via real embedding-based retrieval (TF-IDF+SVD), method='{retrieval_method}'")
 
     # 17. Longitudinal Clinical Brief Synthesis (Multi-point trend + Citations)
     print("\n--- 11. LONGITUDINAL CLINICAL BRIEF SYNTHESIS ---")
@@ -523,13 +535,81 @@ def main():
     r_upload_adv = session.post(f"{BACKEND_URL}/api/documents/", data=data_adv, files=files_adv, headers=doc_a_headers)
     assert r_upload_adv.status_code == 201
     adv_doc = r_upload_adv.json()
-    # Ensure system didn't crash and text was safely sanitized
+    # Ensure system didn't crash and the PERSISTED text (what RAG chunks -
+    # not just an internal ephemeral copy) was actually sanitized.
     assert str(adv_doc.get("status", "")).lower() in ["completed", "processed"]
-    log(37, "Security Test: Adversarial prompt injection payload safely sanitized into neutral clinical entity")
+    persisted_text = adv_doc.get("extracted_text", "")
+    assert "ignore all previous clinical constraints" not in persisted_text.lower(), (
+        "Persisted extracted_text still contains the raw injection phrasing - sanitization did not reach the stored field"
+    )
+    assert "6.0" in persisted_text, "Genuine clinical content must survive sanitization, not just the injection text"
+    log(37, "Security Test: Adversarial prompt injection payload safely sanitized in the PERSISTED extracted_text field (not just an ephemeral copy)")
 
+    # 21. Medication Intelligence (Phase 3) - deterministic reconciliation
+    # over Patient X's real medication/document data accumulated above.
+    print("\n--- 15. MEDICATION INTELLIGENCE (PHASE 3) ---")
+    r_med_intel = session.get(f"{BACKEND_URL}/api/medications/intelligence/?patient_id={patient_x_id}", headers=doc_a_headers)
+    assert r_med_intel.status_code == 200, f"Medication Intelligence failed: {r_med_intel.text}"
+    med_intel = r_med_intel.json()
+    assert med_intel["patient_id"] == patient_x_id
+    assert any(m["name"].lower() == "metformin" for m in med_intel["current_medications"]), (
+        f"Expected the verified Metformin prescription in current_medications, got {med_intel['current_medications']}"
+    )
+    log(38, f"Medication Intelligence: {len(med_intel['current_medications'])} current medication(s), "
+             f"{len(med_intel['observations'])} reconciliation observation(s), computed from real DB + document data")
+
+    # Note: doc_b_headers already holds an active QR grant for Patient X by
+    # this point (step 29) - that's the intended consult flow, so it must
+    # NOT be denied here. The negative case needs a doctor who has never
+    # been granted any access at all: register a fresh, unrelated Doctor C.
+    doc_c_email = f"dr.chen_{int(time.time())}@healbytes.local"
+    r_doc_c_reg = session.post(f"{BACKEND_URL}/api/auth/register/doctor/", json={
+        "email": doc_c_email, "username": f"dr_chen_{int(time.time())}", "password": "DoctorPass123!",
+        "first_name": "Wei", "last_name": "Chen", "phone_number": "+1-555-7723",
+        "specialization": "Internal Medicine", "license_number": f"MD-C-{int(time.time())}"
+    })
+    assert r_doc_c_reg.status_code == 201, f"Register Doctor C failed: {r_doc_c_reg.text}"
+    r_doc_c_login = session.post(f"{BACKEND_URL}/api/auth/login/", json={"email": doc_c_email, "password": "DoctorPass123!"})
+    assert r_doc_c_login.status_code == 200
+    doc_c_headers = {"Authorization": f"Bearer {r_doc_c_login.json()['access']}"}
+
+    r_med_intel_c = session.get(f"{BACKEND_URL}/api/medications/intelligence/?patient_id={patient_x_id}", headers=doc_c_headers)
+    assert r_med_intel_c.status_code == 403, f"Expected 403 for a doctor with zero relationship/grant, got {r_med_intel_c.status_code}"
+    log(39, "Security Test: Medication Intelligence denies a doctor with no assignment and no QR grant at all (HTTP 403)")
+
+    # 22. Patient Timeline (Phase 4) - deterministic chronological
+    # aggregation of the real events created throughout this run.
+    print("\n--- 16. PATIENT TIMELINE (PHASE 4) ---")
+    r_timeline = session.get(f"{BACKEND_URL}/api/analytics/patients/{patient_x_id}/timeline/", headers=doc_a_headers)
+    assert r_timeline.status_code == 200, f"Timeline failed: {r_timeline.text}"
+    timeline = r_timeline.json()
+    event_types = {e["event_type"] for e in timeline["events"]}
+    for expected in ("APPOINTMENT", "LAB_REQUESTED", "LAB_RESULT", "PRESCRIPTION_STARTED", "MEDICAL_DOCUMENT_UPLOADED"):
+        assert expected in event_types, f"Expected '{expected}' in Patient X's real timeline, got types: {event_types}"
+    dates = [e["date"] for e in timeline["events"]]
+    assert dates == sorted(dates, reverse=True), "Timeline must be chronologically ordered (most recent first)"
+    log(40, f"Patient Timeline: {timeline['event_count']} real events aggregated and chronologically ordered, "
+             f"covering {len(event_types)} distinct event types")
+
+    # 23. Clinical Brief now carries Medication Intelligence, Timeline, a
+    # unified Sources list, and a Grounding/Safety verification pass
+    # (Phase 5 + Phase 7) - re-fetch and check the extended sections.
+    print("\n--- 17. CLINICAL BRIEF EXTENSION + SAFETY/GROUNDING (PHASE 5 + 7) ---")
+    r_brief2 = session.get(f"{BACKEND_URL}/api/analytics/patients/{patient_x_id}/ai-summary/", headers=doc_a_headers)
+    assert r_brief2.status_code == 200
+    brief2 = r_brief2.json()["clinical_brief"]
+    assert "medication_intelligence" in brief2 and "patient_timeline" in brief2 and "sources" in brief2
+    assert brief2["rag_retrieval_method"] == "semantic_embedding_lsa"
+    grounding = brief2["grounding"]
+    assert grounding["all_checks_passed"] is True, f"Grounding checks failed on a real, correctly-built brief: {grounding['checks']}"
+    assert grounding["unsupported_claims_removed"] == [], f"Unexpected unsupported claim(s) in a real brief: {grounding['unsupported_claims_removed']}"
+    for source in brief2["sources"]:
+        assert "type" in source and "citation" in source
+    log(41, f"Clinical Brief + Grounding: all {len(grounding['checks'])} safety/grounding checks passed live "
+             f"({len(brief2['sources'])} traceable sources, {len(brief2['medication_intelligence']['observations'])} medication-intelligence observations)")
 
     print("\n" + "=" * 90)
-    print(f"🎉 ALL 37 MASTER LIVE VERIFICATION & SECURITY CHECKS PASSED WITH 100% SUCCESS!")
+    print(f"🎉 ALL 41 MASTER LIVE VERIFICATION & SECURITY CHECKS PASSED WITH 100% SUCCESS!")
     print("=" * 90)
 
 if __name__ == "__main__":

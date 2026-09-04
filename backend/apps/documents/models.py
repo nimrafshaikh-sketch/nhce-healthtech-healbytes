@@ -101,3 +101,54 @@ class MedicalDocument(TimeStampedModel):
 
     def __str__(self):
         return f"{self.title} ({self.get_document_type_display()}) - Patient #{self.patient_id}"
+
+
+class DocumentChunk(TimeStampedModel):
+    """Persisted, patient-scoped retrieval index (Phase 2 semantic RAG).
+
+    One row per chunk of a processed document's `extracted_text`. This is
+    the "vector store" layer requested on top of the existing keyword/TF
+    retrieval in `apps/documents/rag.py`: chunk text and citation metadata
+    are persisted here at document-processing time; the actual embedding
+    vectors are computed deterministically on demand (see
+    `apps/documents/embeddings.py`) from this table's rows, always fit only
+    over one patient's own chunks, so cross-patient leakage is impossible
+    by construction, not just by a post-hoc filter.
+
+    `patient` is denormalized from `document.patient` (not just reachable
+    via a join) specifically so every retrieval query can filter on
+    `patient_id` directly, before any embedding/ranking work happens.
+    """
+
+    document = models.ForeignKey(
+        MedicalDocument,
+        on_delete=models.CASCADE,
+        related_name="chunks",
+    )
+    patient = models.ForeignKey(
+        "patients.Patient",
+        on_delete=models.CASCADE,
+        related_name="document_chunks",
+    )
+    chunk_index = models.PositiveIntegerField()
+    text = models.TextField()
+    page = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Source page number, when the extraction pipeline tracks pages. Null when not available - never fabricated.",
+    )
+    document_type = models.CharField(max_length=30, help_text="Denormalized from document.document_type at index time.")
+    document_title = models.CharField(max_length=255, help_text="Denormalized from document.title at index time.")
+    document_date = models.DateTimeField(help_text="Denormalized from document.created_at (or an extracted document date, when confidently parsed) at index time.")
+
+    class Meta:
+        ordering = ["document_id", "chunk_index"]
+        indexes = [
+            models.Index(fields=["patient", "document"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["document", "chunk_index"], name="unique_chunk_per_document_index"),
+        ]
+
+    def __str__(self):
+        return f"Chunk {self.chunk_index} of Document #{self.document_id} (Patient #{self.patient_id})"

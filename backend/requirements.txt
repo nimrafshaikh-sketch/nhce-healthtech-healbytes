@@ -18,4 +18,9 @@ pytesseract>=0.3.10
 Pillow>=10.0
 django-stubs>=5.0
 django-stubs-ext>=5.0
+# Real semantic (embedding) retrieval for patient-scoped RAG
+# (apps.documents.embeddings): TF-IDF + Truncated SVD (LSA), offline and
+# deterministic - no LLM/embedding API, per this project's current rules.
+scikit-learn>=1.5,<2.0
+numpy>=1.26,<3.0
 

@@ -10,6 +10,74 @@ This directory is self-contained and does not modify anything outside
 `backend/` (frontend, AI engine, or shared infra are owned by other
 team members).
 
+---
+
+## 🏗️ System Architecture
+
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)
+![Django](https://img.shields.io/badge/Django-5-092E20?logo=django&logoColor=white)
+![React](https://img.shields.io/badge/React-Vite-61DAFB?logo=react&logoColor=black)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![Celery](https://img.shields.io/badge/Celery-Redis-37814A?logo=celery&logoColor=white)
+
+HealBytes is a two-service system: a React SPA talking to a modular Django/DRF backend that owns every clinical record, and a **standalone, stateless FastAPI microservice** that turns a single check-in into a deterministic risk verdict. No LLM, no external AI API, and no vector database sit in the critical path today — every "AI" decision in this repo is a rule-based, fully explainable pipeline you can trace line-by-line, on purpose.
+
+**Why it's built this way:**
+
+- **The AI Engine never touches the database.** It receives a JSON snapshot from the backend, computes, and returns JSON — nothing more. Swap the scoring logic for a trained model later without touching Django, the DB, or the frontend.
+- **Two AI pipelines, not one blurry "AI layer."** A real-time **Risk Assessment Service** (check-in → score) and an on-demand, in-process **Clinical Intelligence Pipeline** (documents → evidence-grounded doctor brief) are kept structurally separate because they solve different problems.
+- **Every score is bounded and explainable.** Secondary signals (history trend, medication adherence) can only ever *nudge* a score by a few points — never flip a verdict on their own — and every generated brief is re-verified against the live database before it's considered final.
+- **Nothing is over-claimed.** No HIPAA/GDPR/SOC 2 claims, no "AI-generated" labels on deterministic templates, no microservice sprawl for its own sake.
+
+### The system, end to end
+
+```mermaid
+flowchart TD
+    User(["User<br/>Doctor / Patient / Receptionist / Lab Tech"])
+    FE["Frontend<br/>React + Vite SPA"]
+    BE["Django Backend<br/>DRF · JWT Auth · Business Rules"]
+    AIE["AI Engine<br/>FastAPI · Risk Assessment Service"]
+    CIP["Clinical Intelligence Pipeline<br/>in-process Django services"]
+    Celery["Celery Worker + Beat"]
+    DB[("PostgreSQL / SQLite")]
+
+    User -->|HTTPS| FE
+    FE -->|"REST/JSON + JWT"| BE
+    BE -->|"POST /api/v1/analyze"| AIE
+    AIE -->|"risk · follow-up · explanation"| BE
+    BE --> CIP --> DB
+    BE --> DB
+    BE -->|async| Celery
+    BE -->|response| FE --> User
+```
+
+### Layers at a glance
+
+| Layer | What lives there | Status |
+|---|---|---|
+| Presentation | React + Vite SPA, role-based views | Implemented |
+| API | DRF views/serializers, JWT auth, RBAC | Implemented |
+| AI Engine | FastAPI, stateless, no DB access | Implemented |
+| Clinical Intelligence | Document intelligence, RAG, medication reconciliation, timeline, grounding — all in-process in Django | Implemented |
+| Async | Celery + Celery Beat for reminders & alert emails | Implemented |
+| Data | PostgreSQL (prod) / SQLite (dev) via Django ORM | Implemented |
+| Infra | Docker Compose (DB, Redis, backend, workers) | Partial — AI Engine & frontend not yet containerized |
+
+### Two pipelines, six agents each
+
+**Check-in Risk Assessment** *(AI Engine, per request)*:
+`Risk Baseline` → `Trend Detector` → `Medication Adherence` → `Risk Assessor (combine + clamp)` → `Follow-up Recommender` → `Explanation Service`
+
+**Clinical Brief** *(Django backend, on demand)*:
+`Document Intelligence (OCR)` → `Clinical Retrieval (RAG, semantic + keyword fallback)` → `Medication Intelligence` → `Patient Timeline` → `Clinical Brief Synthesizer` → `Grounding Verifier`
+
+Each stage is a plain, single-purpose function called in a fixed order by its orchestrator — not autonomous agents messaging each other. That's deliberate: every stage is independently testable, replaceable, and fails safe (an unreachable AI Engine degrades to `"unavailable"` rather than blocking a check-in; semantic retrieval automatically falls back to keyword search; every citation in a brief is re-verified against the database before being shown to a doctor).
+
+**📄 Full architecture reference:** [`ARCHITECTURE.md`](./ARCHITECTURE.md) — component-by-component responsibilities, the full 12-agent table with inputs/outputs/failure modes, end-to-end data flow, API boundaries, data architecture, security model, AI safety guarantees, scalability, observability, and the extensibility roadmap.
+
+---
+
 ## Stack
 
 Python 3.10+, Django 5, DRF, SimpleJWT, Celery + Celery Beat (django-celery-beat,
