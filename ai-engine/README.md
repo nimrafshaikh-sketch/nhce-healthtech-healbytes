@@ -467,6 +467,21 @@ module in this codebase): no RAG, no vector database, no external medical
 API, no ML/LLM-derived adherence prediction, no medication-safety judgment,
 no diagnosis, no automated notification delivery, no database access.
 
+## Agent foundation (Gemini) + Doctor Agent
+
+A separate, independent capability alongside `/analyze` and
+`/history/summary`: `app/agents/` adds a shared Gemini + agent + tool
+foundation (`POST /api/v1/agents/patient-summary`) plus, on top of it, a
+Doctor Agent (`POST /api/v1/agents/doctor`) that lets an authenticated
+doctor ask natural-language questions about one of their patients -
+answered by Gemini calling into six existing, read-only capabilities
+(patient info, medications, medication adherence, risk, longitudinal
+history, patient-scoped RAG search) through the existing backend's own
+auth/RBAC. No Receptionist/Patient agent exists yet. None of this touches,
+alters, or feeds into the deterministic pipeline described above. See
+`app/agents/README.md` for the full architecture, tool list, security
+boundaries, and how to add the next agent.
+
 ## Validation
 
 All validation is enforced by Pydantic v2 models: required fields, strict

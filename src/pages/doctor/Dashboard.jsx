@@ -1,6 +1,6 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { CalendarCheck, ClipboardList, Percent, Users, User, ArrowRight, Clock, Calendar } from "lucide-react";
+import { CalendarCheck, ClipboardList, Percent, Users, User, ArrowRight, Clock, Calendar, Sparkles } from "lucide-react";
 import Topbar from "../../components/layout/Topbar";
 import AttentionCard from "../../components/healthcare/AttentionCard";
 import InsightItem from "../../components/healthcare/InsightItem";
@@ -9,6 +9,7 @@ import EmptyState from "../../components/ui/EmptyState";
 import { useAuth } from "../../context/AuthContext";
 import { useData } from "../../context/DataContext";
 import { formatDayLabel, formatTime, formatRelativeTime } from "../../utils/dateUtils";
+import DoctorAgentChat from "../../components/doctor/DoctorAgentChat";
 
 function greeting() {
   const h = new Date().getHours();
@@ -116,6 +117,19 @@ export default function DoctorDashboard() {
             ))}
           </div>
         </section>
+
+        {/* Central AI Clinical Copilot */}
+        {patients.length > 0 && (
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles size={16} className="text-amber-500" />
+                <h2 className="text-base font-semibold text-ink-900">AI Clinical Copilot & Patient Reasoning</h2>
+              </div>
+            </div>
+            <DoctorAgentChat patients={patients} />
+          </section>
+        )}
 
         {/* Assigned Patients Roster */}
         <section>

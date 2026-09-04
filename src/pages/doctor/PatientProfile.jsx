@@ -39,8 +39,9 @@ import { formatRelativeTime, formatDayLabel, formatTime } from "../../utils/date
 import { getPrescriptionsForPatient } from "../../api/prescription.api";
 import { createAppointment } from "../../api/appointment.api";
 import { useAuth } from "../../context/AuthContext";
+import DoctorAgentChat from "../../components/doctor/DoctorAgentChat";
 
-const TABS = ["Overview", "Documents", "Check-ins", "Medications", "Prescriptions", "Labs", "History", "Analytics"];
+const TABS = ["Overview", "AI Copilot", "Documents", "Check-ins", "Medications", "Prescriptions", "Labs", "History", "Analytics"];
 
 export default function PatientProfile() {
   const { id } = useParams();
@@ -355,6 +356,11 @@ export default function PatientProfile() {
                 <AIHistorySummaryCard summary={aiSummary} loading={summaryLoading} />
               </div>
 
+              {/* Live AI Copilot Assistant in Overview */}
+              <div className="lg:col-span-3">
+                <DoctorAgentChat patientId={patient.id} patientName={patient.name} />
+              </div>
+
               <div className="rounded-2xl border border-ink-300/15 bg-white p-6 shadow-card lg:col-span-2">
                 <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-500">Recent Check-ins</h2>
                 {checkins.length ? (
@@ -387,6 +393,25 @@ export default function PatientProfile() {
                   </div>
                 </dl>
               </div>
+            </div>
+          )}
+
+          {tab === "AI Copilot" && (
+            <div className="space-y-6">
+              <div className="rounded-2xl border border-brand-200 bg-gradient-to-r from-brand-50 to-indigo-50/60 p-5 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600 text-white shadow-sm">
+                    <Sparkles size={20} />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-ink-900">Dedicated AI Clinical Copilot Workspace</h2>
+                    <p className="text-xs text-ink-600">
+                      Chat with the patient's record in natural language. The Gemini engine autonomously queries live vitals, OCR prescriptions, lab results, and adherence metrics.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <DoctorAgentChat patientId={patient.id} patientName={patient.name} />
             </div>
           )}
 

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, Plus, Loader2 } from "lucide-react";
+import { Search, Plus, Loader2, Sparkles } from "lucide-react";
 import Topbar from "../../components/layout/Topbar";
 import Button from "../../components/ui/Button";
 import PatientCard from "../../components/healthcare/PatientCard";
@@ -10,6 +10,7 @@ import { useData } from "../../context/DataContext";
 import { formatRelativeTime } from "../../utils/dateUtils";
 import { searchMyPatients } from "../../api/patients.api";
 import { USE_MOCK } from "../../api/client";
+import DoctorAgentChat from "../../components/doctor/DoctorAgentChat";
 
 const FILTERS = [
   { key: "ALL", label: "All" },
@@ -23,6 +24,7 @@ export default function Patients() {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("ALL");
+  const [copilotOpen, setCopilotOpen] = useState(false);
   // Debounced server-side search results (live mode only - see
   // api/patients.api.js::searchMyPatients). null means "not currently
   // searching", i.e. fall back to the doctor's already-loaded full list.
@@ -93,10 +95,25 @@ export default function Patients() {
               />
             )}
           </div>
-          <Button leftIcon={<Plus size={16} />} onClick={() => navigate("/doctor/patients/new")}>
-            Add Patient
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={copilotOpen ? "primary" : "secondary"}
+              leftIcon={<Sparkles size={16} className={copilotOpen ? "text-amber-200" : "text-amber-500"} />}
+              onClick={() => setCopilotOpen(!copilotOpen)}
+            >
+              {copilotOpen ? "Hide AI Copilot" : "AI Clinical Copilot"}
+            </Button>
+            <Button leftIcon={<Plus size={16} />} onClick={() => navigate("/doctor/patients/new")}>
+              Add Patient
+            </Button>
+          </div>
         </div>
+
+        {copilotOpen && (
+          <div className="mb-6 animate-in fade-in slide-in-from-top-2 duration-200">
+            <DoctorAgentChat patients={allPatients} />
+          </div>
+        )}
 
         <div className="mb-5 flex flex-wrap gap-2">
           {FILTERS.map((f) => (

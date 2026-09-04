@@ -1,7 +1,7 @@
 // Centralized network layer. Everything else (components, contexts) goes
 // through the api/*.js files, never fetch() directly.
 export const USE_MOCK = String(import.meta.env.VITE_USE_MOCK_DATA) !== "false";
-export const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000/api";
+export const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
 const AUTH_STORAGE_KEY = "healbytes_auth"; // see context/AuthContext.jsx - same key
 
 // Auth was previously threaded manually per call site, and almost none of
@@ -11,7 +11,7 @@ const AUTH_STORAGE_KEY = "healbytes_auth"; // see context/AuthContext.jsx - same
 // backend. Reading it here once, centrally, fixes that for every caller;
 // an explicit `token` option (e.g. right after redeeming an invitation,
 // before AuthContext has persisted anything yet) still overrides this.
-function currentToken() {
+export function currentToken() {
   try {
     const raw = localStorage.getItem(AUTH_STORAGE_KEY);
     return raw ? JSON.parse(raw).token : null;

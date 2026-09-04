@@ -145,6 +145,7 @@ def test_openapi_schema_includes_all_three_endpoints_and_history_schemas(client)
 
     assert set(spec["paths"].keys()) == {
         "/api/v1/health", "/api/v1/analyze", "/api/v1/history/summary", "/api/v1/lab-analysis",
+        "/api/v1/agents/patient-summary", "/api/v1/agents/doctor", "/api/v1/agents/receptionist",
     }
 
     schemas = spec["components"]["schemas"]

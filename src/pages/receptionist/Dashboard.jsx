@@ -24,6 +24,7 @@ import {
   bookAppointment,
   generatePatientInvitation,
 } from "../../api/receptionist.api";
+import ReceptionistAgentChat from "../../components/receptionist/ReceptionistAgentChat";
 
 export default function ReceptionistDashboard() {
   // Search State
@@ -228,6 +229,11 @@ export default function ReceptionistDashboard() {
           Register New Patient
         </Button>
       </div>
+
+      {/* Front-Desk AI Assistant */}
+      <section>
+        <ReceptionistAgentChat onAppointmentCreated={loadAppointments} />
+      </section>
 
       {/* Main Grid: Search & Registration on Left, Today's Schedule on Right */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
