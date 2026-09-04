@@ -1,26 +1,16 @@
 import React from "react";
+import { QRCodeSVG } from "qrcode.react";
 
-function hashGrid(seed, size) {
-  const cells = [];
-  let h = 0;
-  for (let i = 0; i < seed.length; i += 1) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  for (let i = 0; i < size * size; i += 1) {
-    h = (h * 1103515245 + 12345) >>> 0;
-    cells.push(h % 5 === 0 || h % 7 === 0);
-  }
-  return cells;
-}
-
-export default function QRCard({ value = "healbytes", size = 11 }) {
-  const cells = hashGrid(String(value), size);
+// Renders a REAL, camera-scannable QR code encoding `value` (the signed
+// short-lived consultation token from apps.qr - see api/qr.api.js). This
+// used to be a fake hashed grid that only LOOKED like a QR code and could
+// never actually be decoded by a scanner (Part 2/3 root cause) - replaced
+// with a genuine QR encoder so the doctor's real camera scanner
+// (pages/doctor/QRScanner.jsx) can decode it end to end.
+export default function QRCard({ value = "healbytes", size = 224 }) {
   return (
-    <div
-      className="mx-auto grid w-56 gap-0.5 rounded-2xl border border-ink-300/15 bg-white p-4 shadow-card"
-      style={{ gridTemplateColumns: `repeat(${size}, 1fr)` }}
-    >
-      {cells.map((filled, i) => (
-        <div key={i} className={`aspect-square rounded-[2px] ${filled ? "bg-ink-900" : "bg-transparent"}`} />
-      ))}
+    <div className="mx-auto flex w-56 items-center justify-center rounded-2xl border border-ink-300/15 bg-white p-4 shadow-card">
+      <QRCodeSVG value={String(value)} size={size - 32} level="M" includeMargin={false} />
     </div>
   );
 }

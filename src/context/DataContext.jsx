@@ -1,12 +1,14 @@
-import React, { createContext, useContext, useMemo, useReducer, useCallback } from "react";
+import React, { createContext, useContext, useMemo, useReducer, useCallback, useEffect } from "react";
 import { initialPatients, initialMedications, initialAlerts, initialCheckins } from "../data/demoData";
-import { createPatient as createPatientApi } from "../api/patients.api";
+import { createPatient as createPatientApi, getPatients as getPatientsApi } from "../api/patients.api";
 import { redeemInvitation as redeemInvitationApi, generateInvitation as generateInvitationApi } from "../api/invitation.api";
 import { submitCheckin as submitCheckinApi } from "../api/checkin.api";
 import { analyzeCheckinAI } from "../api/ai.api";
 import { resolveAlert as resolveAlertApi } from "../api/alerts.api";
-import { addMedication as addMedicationApi, markMedicationStatus as markMedicationStatusApi } from "../api/medication.api";
+import { addMedication as addMedicationApi, markMedicationStatus as markMedicationStatusApi, getMedications as getMedicationsApi } from "../api/medication.api";
 import { generateId } from "../utils/id";
+import { USE_MOCK } from "../api/client";
+import { useAuth } from "./AuthContext";
 
 const DataContext = createContext(null);
 
@@ -21,6 +23,10 @@ function reducer(state, action) {
   switch (action.type) {
     case "SYNC_STATE":
       return action.payload;
+    case "SET_PATIENTS":
+      return { ...state, patients: action.payload };
+    case "SET_MEDICATIONS":
+      return { ...state, medications: action.payload };
     case "ADD_PATIENT":
       return { ...state, patients: [action.payload, ...state.patients] };
     case "UPDATE_PATIENT":
@@ -85,6 +91,38 @@ export function DataProvider({ children }) {
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
   }, []);
+
+  // Live-mode data load. Previously `patients` (and everything derived from
+  // it - the whole doctor dashboard, patient search, lab-tech patient names)
+  // was seeded ONLY from hardcoded demo data (initialState above), even with
+  // VITE_USE_MOCK_DATA=false - there was no live fetch anywhere. A doctor's
+  // real patients (created via the receptionist or Add Patient flow) simply
+  // never appeared. This fetches the real list once the doctor is
+  // authenticated, and refreshData() lets any page force a reload after a
+  // mutation the reducer doesn't already model locally (e.g. prescription
+  // verification creating a Medication server-side).
+  const { isAuthenticated, role, ready } = useAuth();
+
+  const loadLiveData = useCallback(async () => {
+    if (USE_MOCK || !ready || !isAuthenticated || role !== "DOCTOR") return;
+    try {
+      const patients = await getPatientsApi();
+      dispatch({ type: "SET_PATIENTS", payload: patients });
+    } catch {
+      // Network/auth error - keep whatever's already in state rather than
+      // wiping it; the page-level fetches will surface their own errors.
+    }
+    try {
+      const medications = await getMedicationsApi();
+      dispatch({ type: "SET_MEDICATIONS", payload: medications });
+    } catch {
+      // same as above
+    }
+  }, [isAuthenticated, role, ready]);
+
+  useEffect(() => {
+    loadLiveData();
+  }, [loadLiveData]);
 
   const addPatient = useCallback(async (formData) => {
     const patient = await createPatientApi(formData);
@@ -188,17 +226,27 @@ export function DataProvider({ children }) {
     [state.medications]
   );
 
-  const getPatientById = useCallback((id) => state.patients.find((p) => p.id === id), [state.patients]);
+  // Loose (string-normalized) comparisons throughout: route params
+  // (useParams()) are always strings, but live-mode ids from Django are
+  // numbers - a strict === here would silently fail to find a real patient
+  // by id even though it's right there in state.
+  const getPatientById = useCallback(
+    (id) => state.patients.find((p) => String(p.id) === String(id)),
+    [state.patients]
+  );
   const getMedicationsForPatient = useCallback(
-    (id) => state.medications.filter((m) => m.patientId === id),
+    (id) => state.medications.filter((m) => String(m.patientId) === String(id)),
     [state.medications]
   );
   const getCheckinsForPatient = useCallback(
-    (id) => state.checkins.filter((c) => c.patientId === id).sort((a, b) => new Date(b.date) - new Date(a.date)),
+    (id) =>
+      state.checkins
+        .filter((c) => String(c.patientId) === String(id))
+        .sort((a, b) => new Date(b.date) - new Date(a.date)),
     [state.checkins]
   );
   const getAlertsForPatient = useCallback(
-    (id) => state.alerts.filter((a) => a.patientId === id),
+    (id) => state.alerts.filter((a) => String(a.patientId) === String(id)),
     [state.alerts]
   );
 
@@ -210,6 +258,7 @@ export function DataProvider({ children }) {
   const value = {
     ...state,
     addPatient,
+    refreshData: loadLiveData,
     redeemInvitationCode,
     verifyInvitationCode: redeemInvitationCode,
     regenerateInvitation,

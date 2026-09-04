@@ -34,6 +34,11 @@ export default function LabDashboard() {
 
   useEffect(() => {
     loadRequests();
+    // Lightweight polling so a new request/alert shows up without the lab
+    // tech having to manually refresh or reload the page (Part 6/7) - no
+    // new infrastructure (WebSockets/Celery/etc.) needed for this.
+    const interval = setInterval(loadRequests, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   async function loadRequests() {

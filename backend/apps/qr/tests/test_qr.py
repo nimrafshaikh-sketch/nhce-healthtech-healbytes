@@ -49,7 +49,7 @@ class QRApiTests(APITestCase):
 
         from django.conf import settings
         from django.utils import timezone
-        expected_expiry = timezone.now() + timezone.timedelta(hours=settings.QR_ACCESS_GRANT_HOURS)
+        expected_expiry = timezone.now() + timezone.timedelta(minutes=settings.QR_ACCESS_GRANT_MINUTES)
         self.assertAlmostEqual(
             (grant.expires_at - expected_expiry).total_seconds(), 0, delta=5,
         )
@@ -57,6 +57,12 @@ class QRApiTests(APITestCase):
         # The patient's primary-doctor assignment must be completely untouched.
         self.patient.refresh_from_db()
         self.assertEqual(self.patient.doctor_id, self.doctor.id)
+
+    def test_grant_defaults_to_exactly_10_minutes(self):
+        """Part 13/25 requirement: the consultation window is EXACTLY 10
+        minutes by default (minutes, never accidentally hours)."""
+        from django.conf import settings
+        self.assertEqual(settings.QR_ACCESS_GRANT_MINUTES, 10)
 
     def test_expired_grant_no_longer_authorizes_document_or_rag_access(self):
         """A grant that has aged past its expiry must stop authorizing
@@ -69,6 +75,37 @@ class QRApiTests(APITestCase):
         )
         self.assertFalse(grant.is_active())
         self.assertFalse(QRAccessGrant.has_active_grant(patient=self.patient, doctor=self.other_doctor))
+
+    def test_grant_exact_10_minute_boundary(self):
+        """T0 = grant created (now). T+9min = still active. T+10min = expired.
+        T+11min = expired. Verified by constructing grants at each offset
+        relative to 'now', rather than freezing global time (no freezegun
+        dependency in this project)."""
+        from django.utils import timezone
+
+        now = timezone.now()
+
+        # Simulate "T+9 minutes" into a 10-minute grant: 1 minute of validity
+        # remains from 'now', so it must still be active.
+        still_valid = QRAccessGrant.objects.create(
+            patient=self.patient, doctor=self.other_doctor,
+            expires_at=now + timezone.timedelta(minutes=1),
+        )
+        self.assertTrue(still_valid.is_active())
+
+        # Simulate "T+10 minutes": the grant's validity window has just closed.
+        exactly_expired = QRAccessGrant.objects.create(
+            patient=self.patient, doctor=self.other_doctor,
+            expires_at=now,
+        )
+        self.assertFalse(exactly_expired.is_active(), "a grant expiring at/before now must be expired")
+
+        # Simulate "T+11 minutes": clearly expired.
+        past_expired = QRAccessGrant.objects.create(
+            patient=self.patient, doctor=self.other_doctor,
+            expires_at=now - timezone.timedelta(minutes=1),
+        )
+        self.assertFalse(past_expired.is_active())
 
     def test_generated_token_expires_in_15_minutes(self):
         from django.conf import settings

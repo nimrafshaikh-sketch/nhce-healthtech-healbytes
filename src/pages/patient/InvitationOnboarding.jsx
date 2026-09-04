@@ -5,10 +5,11 @@ import Input from "../../components/ui/Input";
 import Button from "../../components/ui/Button";
 import { useData } from "../../context/DataContext";
 import { useAuth } from "../../context/AuthContext";
+import { getMyPatientProfile } from "../../api/patients.api";
 
 export default function InvitationOnboarding() {
   const { redeemInvitationCode } = useData();
-  const { loginAsPatient } = useAuth();
+  const { loginAsPatient, updateCurrentUser } = useAuth();
   const navigate = useNavigate();
 
   const [formData, setFormData] = useState({
@@ -31,18 +32,19 @@ export default function InvitationOnboarding() {
     setError(null);
     try {
       const res = await redeemInvitationCode(formData);
+
+      // Root-cause fix (Part 1): the account must show the EXACT Patient
+      // record the invitation resolved to server-side (res.patient_id) -
+      // never a value fabricated from whatever the person just typed into
+      // this form. Persist the id/token first (loginAsPatient), so the
+      // follow-up authenticated fetch of the real profile has a token to
+      // send; mock mode already returns the full matched patient inline.
+      loginAsPatient({ id: res.patient_id, email: formData.email }, res.access);
+      const realProfile = res.patient || (await getMyPatientProfile());
+      if (realProfile) updateCurrentUser(realProfile);
+
       setSuccess(true);
-      setTimeout(() => {
-        loginAsPatient(
-          {
-            id: res.patient_id,
-            name: formData.username,
-            email: formData.email,
-          },
-          res.access
-        );
-        navigate("/patient/home");
-      }, 1000);
+      setTimeout(() => navigate("/patient/home"), 1000);
     } catch (err) {
       setError(err.message || "Failed to redeem invitation code.");
     } finally {

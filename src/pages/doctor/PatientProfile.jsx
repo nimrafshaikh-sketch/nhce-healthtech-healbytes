@@ -587,7 +587,6 @@ export default function PatientProfile() {
           fetchPrescriptionsAndLabs();
         }}
         patientId={patient.id}
-        doctorId={user?.id}
       />
 
       <DocumentUploadModal

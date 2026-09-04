@@ -48,7 +48,10 @@ class LabTestRequestListCreateView(generics.ListCreateAPIView):
         patient = serializer.validated_data["patient"]
         if patient.doctor_id != self.request.user.id:
             raise PermissionDenied("You can only request lab tests for your own patients.")
-        serializer.save(requested_by=self.request.user)
+        lab_request = serializer.save(requested_by=self.request.user)
+
+        from .tasks import notify_lab_techs_of_new_request
+        notify_lab_techs_of_new_request.delay(lab_request.id)
 
 
 @extend_schema(tags=["Lab Tests"], summary="Retrieve a single lab test request")

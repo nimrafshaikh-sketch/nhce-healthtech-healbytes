@@ -36,18 +36,18 @@ class QRAccessGrant(TimeStampedModel):
         return self.expires_at >= timezone.now()
 
     @classmethod
-    def grant(cls, *, patient, doctor, hours=None, purpose="qr_scan_consultation"):
-        """Create a fresh time-bound grant. `hours` defaults to
-        settings.QR_ACCESS_GRANT_HOURS. Each QR verification creates a new
-        grant row (simple, fully auditable) rather than mutating an
-        existing one."""
+    def grant(cls, *, patient, doctor, minutes=None, purpose="qr_scan_consultation"):
+        """Create a fresh time-bound grant. `minutes` defaults to
+        settings.QR_ACCESS_GRANT_MINUTES (10 minutes - one consultation
+        window). Each QR verification creates a new grant row (simple,
+        fully auditable) rather than mutating an existing one."""
         from django.conf import settings
 
-        hours = settings.QR_ACCESS_GRANT_HOURS if hours is None else hours
+        minutes = settings.QR_ACCESS_GRANT_MINUTES if minutes is None else minutes
         return cls.objects.create(
             patient=patient,
             doctor=doctor,
-            expires_at=timezone.now() + timezone.timedelta(hours=hours),
+            expires_at=timezone.now() + timezone.timedelta(minutes=minutes),
             purpose=purpose,
         )
 
