@@ -4,6 +4,7 @@ export const ENDPOINTS = {
   AUTH_ME: "/auth/me/",
   PATIENTS: "/patients/",
   PATIENT_BY_ID: (id) => `/patients/${id}/`,
+  PATIENT_ME: "/patients/me/",
   INVITATIONS: "/invitations/generate/",
   INVITATIONS_VERIFY: "/invitations/redeem/",
   CHECKINS: "/checkins/",
@@ -20,4 +21,7 @@ export const ENDPOINTS = {
   AI_SUMMARY_DOCTOR: (patientId) => `/analytics/patients/${patientId}/ai-summary/`,
   QR_GENERATE: "/qr/generate/",
   QR_VERIFY: "/qr/verify/",
+  NOTIFICATIONS: "/notifications/",
+  NOTIFICATIONS_UNREAD: "/notifications/?unread=true",
+  NOTIFICATION_READ: (id) => `/notifications/${id}/read/`,
 };

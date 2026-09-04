@@ -2,12 +2,23 @@ import React, { useState } from "react";
 import Modal from "../ui/Modal";
 import Input from "../ui/Input";
 import Button from "../ui/Button";
-import { Upload } from "lucide-react";
-import { createPrescription, uploadPrescriptionImage } from "../../api/prescription.api";
+import { createPrescription } from "../../api/prescription.api";
 
-export default function PrescriptionFormModal({ open, onClose, patientId, doctorId }) {
+// This modal previously also offered an "Upload written prescription -
+// AI will extract the details automatically" image button that called a
+// nonexistent `/prescriptions/upload` endpoint (mock mode faked a canned
+// "Amoxicillin" result) and, worse, fed straight into medications state
+// with NO doctor verification step before submission - a second,
+// duplicate, and less safe OCR path alongside the real one (Upload
+// Document -> OCR -> REVIEW_REQUIRED -> PrescriptionVerificationModal ->
+// Medication, in components/healthcare/DocumentUploadModal.jsx +
+// PrescriptionVerificationModal.jsx, already wired on the Patient Profile
+// page and confirmed working end to end). Removed here rather than fixed,
+// since the real path already covers this exact use case correctly
+// (Part 11: OCR output must remain candidate data until doctor
+// verification - this shortcut violated that).
+export default function PrescriptionFormModal({ open, onClose, patientId }) {
   const [loading, setLoading] = useState(false);
-  const [ocrLoading, setOcrLoading] = useState(false);
   const [medications, setMedications] = useState([
     { name: "", dosage: "", frequency: "", duration: "", instructions: "" }
   ]);
@@ -22,23 +33,6 @@ export default function PrescriptionFormModal({ open, onClose, patientId, doctor
     setMedications(newMeds);
   };
 
-  const handleImageUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setOcrLoading(true);
-    try {
-      const result = await uploadPrescriptionImage(file);
-      if (result.success && result.extractedData) {
-        setMedications(result.extractedData.medications);
-        alert("Draft prescription extracted. Please verify the data.");
-      }
-    } catch (err) {
-      alert("Failed to process image.");
-    } finally {
-      setOcrLoading(false);
-    }
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -51,13 +45,12 @@ export default function PrescriptionFormModal({ open, onClose, patientId, doctor
       }
       await createPrescription({
         patientId,
-        doctorId,
         medications: validMeds,
       });
       alert("Prescription created successfully!");
       onClose();
     } catch (err) {
-      alert("Failed to create prescription.");
+      alert(err.message || "Failed to create prescription.");
     } finally {
       setLoading(false);
     }
@@ -66,19 +59,10 @@ export default function PrescriptionFormModal({ open, onClose, patientId, doctor
   return (
     <Modal open={open} onClose={onClose} title="Create Prescription">
       <div className="space-y-6">
-        
-        {/* OCR Section */}
-        <div className="bg-brand-50 p-4 rounded-xl border border-brand-100 flex items-center justify-between">
-          <div>
-            <h4 className="font-bold text-brand-900 text-sm">Upload written prescription</h4>
-            <p className="text-xs text-brand-700">AI will extract the details automatically.</p>
-          </div>
-          <label className={`cursor-pointer bg-white border border-brand-200 text-brand-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-50 flex items-center gap-2 ${ocrLoading ? 'opacity-50 pointer-events-none' : ''}`}>
-            <Upload size={16} />
-            {ocrLoading ? "Extracting..." : "Upload Image"}
-            <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-          </label>
-        </div>
+        <p className="text-xs text-ink-400">
+          For a scanned/photographed prescription, use "Upload Document" on the patient's Documents
+          tab instead - it runs OCR and requires your verification before creating a medication.
+        </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="max-h-96 overflow-y-auto space-y-4 pr-2">

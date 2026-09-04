@@ -22,6 +22,7 @@ class EmailNotificationLogSerializer(serializers.ModelSerializer):
         model = EmailNotificationLog
         fields = [
             "id", "recipient_type", "recipient_email", "category", "patient", "patient_name",
-            "checkin", "alert", "medication", "subject", "risk_level", "sent", "error", "created_at",
+            "checkin", "alert", "medication", "lab_test_request", "subject", "risk_level",
+            "sent", "error", "created_at",
         ]
         read_only_fields = fields

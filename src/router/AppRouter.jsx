@@ -9,7 +9,10 @@ import Patients from "../pages/doctor/Patients";
 import AddPatient from "../pages/doctor/AddPatient";
 import DoctorPatientProfile from "../pages/doctor/PatientProfile";
 import DoctorAlerts from "../pages/doctor/Alerts";
-import DoctorAnalytics from "../pages/doctor/Analytics";
+// DoctorAnalytics (pages/doctor/Analytics.jsx) intentionally not imported/
+// routed here - Part 10: Analytics removed from the Doctor Dashboard. The
+// file is left in place (unused) rather than deleted, in case it's wanted
+// again; the component and its API call are otherwise fully disconnected.
 import QRScanner from "../pages/doctor/QRScanner";
 import DoctorProfile from "../pages/doctor/Profile";
 
@@ -34,8 +37,15 @@ import ReceptionistNewPatient from "../pages/receptionist/NewPatient";
 import LabLayout from "../components/layout/LabLayout";
 import LabLogin from "../pages/lab/Login";
 import LabDashboard from "../pages/lab/Dashboard";
-import LabTechQueue from "../pages/lab/Queue";
-import LabTechTestDetail from "../pages/lab/TestDetail";
+// pages/lab/Queue.jsx and pages/lab/TestDetail.jsx intentionally not
+// imported/routed here - they were an orphaned duplicate lab-tech flow
+// (uppercase mock statuses like "COMPLETED" that never match the real
+// backend's lowercase status choices, and fields like req.testType/
+// req.patientName that don't exist on the live LabTestRequest response),
+// reachable only by typing /lab/queue directly since no nav link in
+// LabLayout.jsx points at it anymore. pages/lab/Dashboard.jsx is the one
+// real, working implementation (queue + claim + submit results in one
+// page, correctly wired to apps.labtests) and now covers this fully.
 
 import { useAuth } from "../context/AuthContext";
 
@@ -73,7 +83,6 @@ export default function AppRouter() {
         <Route path="patients/:id" element={<DoctorPatientProfile />} />
         <Route path="patients/:id/medications" element={<DoctorPatientProfile />} />
         <Route path="alerts" element={<DoctorAlerts />} />
-        <Route path="analytics" element={<DoctorAnalytics />} />
         <Route path="qr-scanner" element={<QRScanner />} />
         <Route path="profile" element={<DoctorProfile />} />
       </Route>
@@ -128,8 +137,6 @@ export default function AppRouter() {
       >
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<LabDashboard />} />
-        <Route path="queue" element={<LabTechQueue />} />
-        <Route path="test/:id" element={<LabTechTestDetail />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

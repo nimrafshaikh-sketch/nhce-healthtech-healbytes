@@ -1,13 +1,18 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
-import { LayoutGrid, Users, Bell, BarChart3, QrCode, UserCircle, Stethoscope } from "lucide-react";
+import { LayoutGrid, Users, Bell, QrCode, UserCircle, Stethoscope } from "lucide-react";
 import { useData } from "../../context/DataContext";
 
+// Analytics was removed from the Doctor Dashboard (see pages/doctor/Analytics.jsx,
+// left in place but unrouted/unlinked - the route below was also removed from
+// AppRouter.jsx). Clinical workflow (patients, alerts, QR consult, profile)
+// stays; practice-wide "Analytics" trends does not, per this dashboard's
+// intended scope. Patient-facing Analytics (pages/patient/Analytics.jsx,
+// "Insights") is a separate, unrelated feature and is untouched.
 const NAV = [
   { to: "/doctor/dashboard", label: "Overview", icon: LayoutGrid },
   { to: "/doctor/patients", label: "Patients", icon: Users },
   { to: "/doctor/alerts", label: "Alerts", icon: Bell, badge: true },
-  { to: "/doctor/analytics", label: "Analytics", icon: BarChart3 },
 ];
 
 function linkClass({ isActive }) {
