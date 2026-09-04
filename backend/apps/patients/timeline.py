@@ -90,12 +90,24 @@ def build_patient_timeline(patient) -> Dict[str, Any]:
             })
 
     for chk in DailyCheckin.objects.filter(patient=patient):
+        chk_symptoms = []
+        if isinstance(chk.symptoms, list):
+            for s in chk.symptoms:
+                if isinstance(s, str) and s.strip():
+                    chk_symptoms.append(s.strip())
+                elif isinstance(s, dict):
+                    name = s.get("name") or s.get("symptom") or s.get("title")
+                    if name:
+                        chk_symptoms.append(str(name).strip())
+        elif isinstance(chk.symptoms, str) and chk.symptoms.strip():
+            chk_symptoms = [chk.symptoms.strip()]
+
         events.append({
             "patient_id": patient_id,
             "event_type": "CHECK_IN",
             "date": chk.created_at.isoformat(),
             "title": f"Daily check-in ({chk.checkin_date.isoformat()})",
-            "detail": ", ".join(chk.symptoms) if chk.symptoms else "No symptoms reported",
+            "detail": ", ".join(chk_symptoms) if chk_symptoms else "No symptoms reported",
             "source": {"type": "checkin", "id": chk.id},
         })
         if chk.ai_risk_level not in (DailyCheckin.RiskLevel.PENDING, DailyCheckin.RiskLevel.UNAVAILABLE):

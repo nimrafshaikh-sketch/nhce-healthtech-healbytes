@@ -5,12 +5,16 @@ import Input from "../../components/ui/Input";
 import Button from "../../components/ui/Button";
 import { useAuth } from "../../context/AuthContext";
 import { useData } from "../../context/DataContext";
+import { USE_MOCK } from "../../api/client";
 
 export default function PatientLogin() {
   const { login, status, error } = useAuth();
   const { patients } = useData();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ email: patients[0]?.email || "", password: "demo1234" });
+  const [form, setForm] = useState({
+    email: USE_MOCK ? (patients[0]?.email || "rahul.sharma@healbytes.demo") : "patient@healbytes.local",
+    password: USE_MOCK ? "demo1234" : "PatientPass123!",
+  });
 
   async function handleSubmit(e) {
     e.preventDefault();

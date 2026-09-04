@@ -35,14 +35,16 @@ def route_alert_for_checkin(checkin_id):
     from apps.notifications.services import create_notification
 
     if recipient_role in (Alert.RecipientRole.DOCTOR, Alert.RecipientRole.DOCTOR_AND_CARETAKER):
-        create_notification(
-            user=checkin.patient.doctor,
-            notification_type="alert",
-            title=f"Alert: {checkin.patient.full_name} ({severity})",
-            body=reason,
-            related_object_type="alert",
-            related_object_id=alert.id,
-        )
+        doctor_user = getattr(checkin.patient, "doctor", None)
+        if doctor_user:
+            create_notification(
+                user=doctor_user,
+                notification_type="alert",
+                title=f"Alert: {checkin.patient.full_name} ({severity})",
+                body=reason,
+                related_object_type="alert",
+                related_object_id=alert.id,
+            )
     # Caretaker has no login/User account in this backend's scope (no
     # caretaker auth was requested) - caretaker delivery for HIGH severity is
     # DB-only via the Alert record itself, visible through /api/alerts/.

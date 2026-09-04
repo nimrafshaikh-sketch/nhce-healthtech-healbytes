@@ -1,3 +1,4 @@
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import generics, permissions
@@ -15,7 +16,17 @@ from .serializers import (
 
 
 @extend_schema_view(
-    get=extend_schema(tags=["Patients"], summary="List patients belonging to the logged-in doctor"),
+    get=extend_schema(
+        tags=["Patients"],
+        summary="List (optionally search) patients belonging to the logged-in doctor",
+        parameters=[
+            OpenApiParameter(
+                "search", str, required=False,
+                description="Case-insensitive partial match against the patient's full name "
+                             "or phone number, scoped to this doctor's own patients only.",
+            ),
+        ],
+    ),
     post=extend_schema(tags=["Patients"], summary="Add a new patient + caretaker details "
                                                      "(Doctor: self, or Receptionist: picks a doctor)"),
 )
@@ -23,7 +34,13 @@ class PatientListCreateView(generics.ListCreateAPIView):
     """GET stays doctor-only (own patients) - receptionist has no bare
     "list all patients" here, per the non-enumeration principle; they use
     PatientSearchView instead. POST is open to both Doctor and Receptionist,
-    with a different serializer per role (see get_serializer_class)."""
+    with a different serializer per role (see get_serializer_class).
+
+    GET also accepts an optional `?search=` param so the doctor-side patient
+    list can be filtered server-side (name or phone, case-insensitive partial
+    match) instead of only ever fetching the full list and filtering in the
+    browser - the list is already scoped to this doctor's own patients, so
+    this never exposes any patient outside that set."""
 
     def get_permissions(self):
         if self.request.method == "POST":
@@ -40,7 +57,13 @@ class PatientListCreateView(generics.ListCreateAPIView):
         return PatientCreateSerializer
 
     def get_queryset(self):
-        return Patient.objects.filter(doctor=self.request.user)
+        queryset = Patient.objects.filter(doctor=self.request.user)
+        search = self.request.query_params.get("search", "").strip()
+        if search:
+            queryset = queryset.filter(
+                Q(full_name__icontains=search) | Q(phone_number__icontains=search)
+            )
+        return queryset.order_by("full_name")
 
 
 @extend_schema(tags=["Patients"], summary="Retrieve/update/delete a single patient (Doctor only, own patients)")

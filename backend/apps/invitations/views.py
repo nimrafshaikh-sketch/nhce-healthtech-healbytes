@@ -81,20 +81,26 @@ class InvitationRedeemView(APIView):
             return Response({"detail": "This invitation code is no longer valid."},
                              status=status.HTTP_400_BAD_REQUEST)
 
-        user = User(
-            email=data["email"],
-            username=data["username"],
-            role=User.Role.PATIENT,
-        )
-        user.set_password(data["password"])
-        user.save()
+        try:
+            user = User(
+                email=data["email"],
+                username=data["username"],
+                role=User.Role.PATIENT,
+            )
+            user.set_password(data["password"])
+            user.save()
 
-        patient = invitation.patient
-        patient.user = user
-        patient.save(update_fields=["user"])
+            patient = invitation.patient
+            patient.user = user
+            patient.save(update_fields=["user"])
 
-        invitation.used_at = timezone.now()
-        invitation.save(update_fields=["used_at"])
+            invitation.used_at = timezone.now()
+            invitation.save(update_fields=["used_at"])
+        except Exception as e:
+            return Response(
+                {"detail": f"Unable to create account: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         refresh = RefreshToken.for_user(user)
         return Response(

@@ -4,11 +4,15 @@ import { Stethoscope, ArrowRight } from "lucide-react";
 import Input from "../../components/ui/Input";
 import Button from "../../components/ui/Button";
 import { useAuth } from "../../context/AuthContext";
+import { USE_MOCK } from "../../api/client";
 
 export default function DoctorLogin() {
   const { login, status, error } = useAuth();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ email: "sarah.chen@healbytes.demo", password: "demo1234" });
+  const [form, setForm] = useState({
+    email: USE_MOCK ? "sarah.chen@healbytes.demo" : "doctor@healbytes.local",
+    password: USE_MOCK ? "demo1234" : "DoctorPass123!",
+  });
 
   async function handleSubmit(e) {
     e.preventDefault();

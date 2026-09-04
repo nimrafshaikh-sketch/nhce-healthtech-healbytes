@@ -1,3 +1,14 @@
+// NOT ROUTED/IMPORTED ANYWHERE - kept for reference, not wired into any
+// page. Its premise (a patient picks an open time slot and self-books) has
+// no backend support: there is no "available slots" endpoint, and patients
+// are explicitly forbidden from creating appointments at all (only
+// Doctor/Receptionist can POST /appointments/ - see
+// backend/apps/appointments/views.py::AppointmentListCreateView.get_permissions,
+// backend/apps/appointments/tests/test_appointments.py::test_patient_cannot_book_appointment).
+// A patient can only view their own appointments and confirm/cancel an
+// already-scheduled one - see pages/patient/Appointments.jsx and
+// api/appointment.api.js::getMyAppointments/confirmAppointment/cancelAppointment
+// for the real, working implementation of that.
 import React, { useState, useEffect } from "react";
 import { Calendar, CheckCircle } from "lucide-react";
 import { getAvailableSlots, confirmAppointment } from "../../api/appointment.api";

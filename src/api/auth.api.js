@@ -17,7 +17,8 @@ function normalizeUser(raw) {
     .slice(0, 2)
     .map((p) => p[0].toUpperCase())
     .join("");
-  return { ...raw, name, avatarInitials };
+  const role = raw.role ? String(raw.role).toUpperCase() : raw.role;
+  return { ...raw, name, avatarInitials, role };
 }
 
 export async function login({ role, email, password }) {

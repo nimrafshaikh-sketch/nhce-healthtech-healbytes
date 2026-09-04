@@ -4,13 +4,14 @@ import { FlaskConical, ArrowRight } from "lucide-react";
 import Input from "../../components/ui/Input";
 import Button from "../../components/ui/Button";
 import { useAuth } from "../../context/AuthContext";
+import { USE_MOCK } from "../../api/client";
 
 export default function LabLogin() {
   const { login, status, error } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({
-    email: "labtech@healbytes.local",
-    password: "LabTechPass123!",
+    email: USE_MOCK ? "lab@healbytes.demo" : "labtech@healbytes.local",
+    password: USE_MOCK ? "demo1234" : "LabTechPass123!",
   });
 
   async function handleSubmit(e) {

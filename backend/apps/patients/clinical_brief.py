@@ -93,8 +93,10 @@ def build_clinical_brief(patient) -> Dict[str, Any]:
     for doc in medical_docs:
         doc_date = doc.created_at.strftime("%Y-%m-%d")
         doc_sources.append({
+            "id": doc.id,
             "document_id": doc.id,
             "title": doc.title,
+            "type": doc.get_document_type_display(),
             "document_type": doc.get_document_type_display(),
             "date": doc_date,
             "status": doc.processing_status,
@@ -185,10 +187,22 @@ def build_clinical_brief(patient) -> Dict[str, Any]:
     # 6. Recent Clinical Events & Check-ins
     recent_events = []
     for chk in DailyCheckin.objects.filter(patient=patient).order_by("-checkin_date")[:3]:
+        chk_symptoms = []
+        if isinstance(chk.symptoms, list):
+            for s in chk.symptoms:
+                if isinstance(s, str) and s.strip():
+                    chk_symptoms.append(s.strip())
+                elif isinstance(s, dict):
+                    name = s.get("name") or s.get("symptom") or s.get("title")
+                    if name:
+                        chk_symptoms.append(str(name).strip())
+        elif isinstance(chk.symptoms, str) and chk.symptoms.strip():
+            chk_symptoms = [chk.symptoms.strip()]
+
         recent_events.append({
             "type": "DAILY_CHECKIN",
             "date": chk.checkin_date.isoformat(),
-            "symptoms": chk.symptoms or "None reported",
+            "symptoms": ", ".join(chk_symptoms) if chk_symptoms else "None reported",
             "mood": chk.mood,
             "pain_level": chk.pain_level,
             "risk_verdict": chk.ai_risk_level,

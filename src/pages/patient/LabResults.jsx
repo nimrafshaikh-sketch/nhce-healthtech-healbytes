@@ -40,11 +40,12 @@ export default function LabResults() {
   const { user } = useAuth();
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     getLabResultsForPatient(user.id)
       .then((data) => setResults(data.map(mapLabRequestToDisplay)))
-      .catch(console.error)
+      .catch((err) => setError(err.message || "Could not load your lab results."))
       .finally(() => setLoading(false));
   }, [user.id]);
 
@@ -55,6 +56,10 @@ export default function LabResults() {
 
       {loading ? (
         <div className="py-12 text-center text-ink-500">Loading...</div>
+      ) : error ? (
+        <div className="mt-6 rounded-xl border border-risk-high/30 bg-risk-high-bg px-4 py-3 text-sm text-risk-high">
+          {error}
+        </div>
       ) : results.length === 0 ? (
         <div className="mt-6">
           <EmptyState title="No lab results" description="You have no recent lab tests." />

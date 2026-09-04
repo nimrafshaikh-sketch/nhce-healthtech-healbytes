@@ -46,7 +46,7 @@ export async function getDocuments({ patientId } = {}) {
     await mockDelay(300);
     return [];
   }
-  const endpoint = patientId ? `/documents/?patient=${patientId}` : "/documents/";
+  const endpoint = patientId && patientId !== "undefined" ? `/documents/?patient=${patientId}` : "/documents/";
   const data = await apiFetch(endpoint);
   return Array.isArray(data) ? data : data.results || [];
 }
@@ -71,5 +71,10 @@ export async function verifyPrescriptionDocument(documentId, data) {
 }
 
 export function getDocumentViewUrl(documentId) {
+  const auth = JSON.parse(localStorage.getItem("healbytes_auth") || "{}");
+  const token = auth.token;
+  if (token) {
+    return `${BASE_URL}/documents/${documentId}/view/?token=${encodeURIComponent(token)}`;
+  }
   return `${BASE_URL}/documents/${documentId}/view/`;
 }

@@ -26,8 +26,8 @@ class CheckinListCreateView(generics.ListCreateAPIView):
         else:
             qs = DailyCheckin.objects.filter(patient__user=user)
         patient_id = self.request.query_params.get("patient")
-        if patient_id:
-            qs = qs.filter(patient_id=patient_id)
+        if patient_id and str(patient_id).isdigit():
+            qs = qs.filter(patient_id=int(patient_id))
         return qs.select_related("patient")
 
     def perform_create(self, serializer):

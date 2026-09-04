@@ -20,6 +20,7 @@ import PatientLayout from "../components/layout/PatientLayout";
 import PatientLogin from "../pages/patient/Login";
 import InvitationOnboarding from "../pages/patient/InvitationOnboarding";
 import PatientHome from "../pages/patient/Home";
+import PatientAppointments from "../pages/patient/Appointments";
 import CheckIn from "../pages/patient/CheckIn";
 import Medicines from "../pages/patient/Medicines";
 import PatientAlerts from "../pages/patient/Alerts";
@@ -52,10 +53,12 @@ import { useAuth } from "../context/AuthContext";
 function RequireRole({ role, children }) {
   const { role: currentRole, isAuthenticated, ready } = useAuth();
   if (!ready) return null;
-  if (!isAuthenticated || currentRole !== role) {
-    if (role === "DOCTOR") return <Navigate to="/doctor/login" replace />;
-    if (role === "RECEPTIONIST") return <Navigate to="/receptionist/login" replace />;
-    if (role === "LAB_TECH") return <Navigate to="/lab/login" replace />;
+  const cur = currentRole ? String(currentRole).toUpperCase() : null;
+  const exp = role ? String(role).toUpperCase() : null;
+  if (!isAuthenticated || cur !== exp) {
+    if (exp === "DOCTOR") return <Navigate to="/doctor/login" replace />;
+    if (exp === "RECEPTIONIST") return <Navigate to="/receptionist/login" replace />;
+    if (exp === "LAB_TECH") return <Navigate to="/lab/login" replace />;
     return <Navigate to="/patient/login" replace />;
   }
   return children;
@@ -100,6 +103,7 @@ export default function AppRouter() {
       >
         <Route index element={<Navigate to="home" replace />} />
         <Route path="home" element={<PatientHome />} />
+        <Route path="appointments" element={<PatientAppointments />} />
         <Route path="check-in" element={<CheckIn />} />
         <Route path="medicines" element={<Medicines />} />
         <Route path="labs" element={<PatientLabResults />} />

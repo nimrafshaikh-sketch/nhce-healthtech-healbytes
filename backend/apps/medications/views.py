@@ -28,8 +28,8 @@ class MedicationListCreateView(generics.ListCreateAPIView):
         else:
             qs = Medication.objects.filter(patient__user=user)
         patient_id = self.request.query_params.get("patient")
-        if patient_id:
-            qs = qs.filter(patient_id=patient_id)
+        if patient_id and str(patient_id).isdigit():
+            qs = qs.filter(patient_id=int(patient_id))
         return qs.select_related("patient")
 
     def perform_create(self, serializer):
@@ -37,7 +37,47 @@ class MedicationListCreateView(generics.ListCreateAPIView):
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("Only doctors can prescribe medications.")
         patient = Patient.objects.get(id=self.request.data.get("patient"), doctor=self.request.user)
-        serializer.save(prescribed_by=self.request.user, patient=patient)
+
+        frequency = serializer.validated_data.get("frequency", "once_daily")
+        reminder_times = serializer.validated_data.get("reminder_times")
+        if not reminder_times:
+            if frequency == "once_daily":
+                reminder_times = ["08:00"]
+            elif frequency == "twice_daily":
+                reminder_times = ["08:00", "20:00"]
+            elif frequency == "three_times_daily":
+                reminder_times = ["08:00", "13:00", "20:00"]
+            elif frequency == "weekly":
+                reminder_times = ["08:00"]
+            else:
+                reminder_times = ["08:00"]
+
+        medication = serializer.save(prescribed_by=self.request.user, patient=patient, reminder_times=reminder_times)
+
+        # Also create corresponding Prescription record
+        Prescription.objects.create(
+            patient=patient,
+            doctor=self.request.user,
+            medication_name=medication.name,
+            dosage=medication.dosage,
+            frequency=medication.frequency,
+            duration="Ongoing",
+            instructions=medication.instructions or "",
+        )
+
+        # In-app notification to patient
+        if patient.user:
+            from apps.notifications.services import create_notification
+            schedule_str = ", ".join(reminder_times)
+            freq_label = medication.frequency.replace("_", " ").title()
+            create_notification(
+                user=patient.user,
+                notification_type="medication_reminder",
+                title=f"New Prescription: {medication.name} ({medication.dosage})",
+                body=f"Dr. {self.request.user.get_full_name() or self.request.user.last_name} prescribed {medication.name} ({medication.dosage}), {freq_label}. Scheduled at: {schedule_str}. Instructions: {medication.instructions or 'Take as directed'}",
+                related_object_type="medication",
+                related_object_id=medication.id,
+            )
 
 
 @extend_schema(tags=["Medications"], summary="Retrieve/update/delete a medication (Doctor only, own patients)")
@@ -100,8 +140,8 @@ class PrescriptionListCreateView(generics.ListCreateAPIView):
             qs = Prescription.objects.filter(patient__user=user)
             
         patient_id = self.request.query_params.get("patient")
-        if patient_id:
-            qs = qs.filter(patient_id=patient_id)
+        if patient_id and str(patient_id).isdigit():
+            qs = qs.filter(patient_id=int(patient_id))
         return qs.select_related("patient", "doctor")
 
     def perform_create(self, serializer):

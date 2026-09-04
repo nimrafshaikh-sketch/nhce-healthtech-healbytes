@@ -49,6 +49,7 @@ export default function CheckIn() {
     notes: "",
   });
   const [aiResult, setAiResult] = useState(null);
+  const [submitError, setSubmitError] = useState(null);
 
   const steps = useMemo(
     () => (form.symptoms.length ? ["feeling", "symptoms", "severity", "duration", "adherence", "notes"] : ["feeling", "symptoms", "duration", "adherence", "notes"]),
@@ -93,6 +94,7 @@ export default function CheckIn() {
 
   async function handleSubmit() {
     setPhase("analyzing");
+    setSubmitError(null);
     const payload = {
       symptoms: form.symptoms.map((s) => ({ name: s.name, severity: s.severity })),
       duration: form.duration,
@@ -100,9 +102,18 @@ export default function CheckIn() {
       medicationAdherence: form.adherence,
       notes: form.notes,
     };
-    const result = await submitCheckin(user.id, payload);
-    setAiResult(result);
-    setPhase("result");
+    try {
+      const result = await submitCheckin(user.id, payload);
+      setAiResult(result);
+      setPhase("result");
+    } catch (err) {
+      // Previously uncaught: an error here (e.g. the "already checked in
+      // today" 400 the backend returns for a duplicate same-day check-in)
+      // left the UI stuck on the "Analyzing…" screen forever with only an
+      // unhandled promise rejection in the console.
+      setSubmitError(err.message || "Could not submit your check-in. Please try again.");
+      setPhase("form");
+    }
   }
 
   if (phase === "analyzing") {
@@ -303,6 +314,11 @@ export default function CheckIn() {
       </div>
 
       <div className="mt-6">
+        {submitError && (
+          <p className="mb-3 rounded-xl border border-risk-high/30 bg-risk-high-bg px-3.5 py-2.5 text-sm text-risk-high">
+            {submitError}
+          </p>
+        )}
         {currentStep === "notes" ? (
           <Button size="lg" fullWidth onClick={handleSubmit}>
             Analyze My Check-in

@@ -258,34 +258,39 @@ export default function AIHistorySummaryCard({ summary, loading = false }) {
           </div>
 
           <div className="space-y-2">
-            {clinical_brief.source_documents.map((doc) => (
-              <div
-                key={doc.id}
-                className="flex items-center justify-between rounded-xl bg-white p-3 border border-emerald-100 shadow-sm"
-              >
-                <div className="flex items-center gap-3">
-                  <FileText size={18} className="text-emerald-600 shrink-0" />
-                  <div>
-                    <p className="text-xs font-bold text-ink-900">{doc.title}</p>
-                    <p className="text-[11px] text-ink-400">
-                      {doc.type} · {doc.date ? new Date(doc.date).toLocaleDateString() : "Recent"}
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="text-xs text-brand-700 border-brand-300 hover:bg-brand-50"
-                  onClick={() => {
-                    const url = getDocumentViewUrl(doc.id);
-                    window.open(url, "_blank");
-                  }}
+            {clinical_brief.source_documents.map((doc) => {
+              const docId = doc.id || doc.document_id;
+              return (
+                <div
+                  key={docId || doc.title}
+                  className="flex items-center justify-between rounded-xl bg-white p-3 border border-emerald-100 shadow-sm"
                 >
-                  <ExternalLink size={12} className="mr-1 inline" />
-                  View Original Report
-                </Button>
-              </div>
-            ))}
+                  <div className="flex items-center gap-3">
+                    <FileText size={18} className="text-emerald-600 shrink-0" />
+                    <div>
+                      <p className="text-xs font-bold text-ink-900">{doc.title}</p>
+                      <p className="text-[11px] text-ink-400">
+                        {doc.type || doc.document_type || "Report"} · {doc.date ? new Date(doc.date).toLocaleDateString() : "Recent"}
+                      </p>
+                    </div>
+                  </div>
+                  {docId && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs text-brand-700 border-brand-300 hover:bg-brand-50"
+                      onClick={() => {
+                        const url = getDocumentViewUrl(docId);
+                        window.open(url, "_blank");
+                      }}
+                    >
+                      <ExternalLink size={12} className="mr-1 inline" />
+                      View Original Report
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

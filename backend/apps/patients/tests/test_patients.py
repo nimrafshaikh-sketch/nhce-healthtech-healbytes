@@ -30,6 +30,30 @@ class PatientApiTests(APITestCase):
         resp = self.client.get(reverse("patient-detail", args=[p.id]), **self.headers)
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_doctor_can_search_own_patients_by_name(self):
+        Patient.objects.create(doctor=self.doctor, full_name="Priya Shah", phone_number="1112223333")
+        Patient.objects.create(doctor=self.doctor, full_name="Amir Khan", phone_number="4445556666")
+        resp = self.client.get(reverse("patient-list-create") + "?search=priya", **self.headers)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["count"], 1)
+        self.assertEqual(resp.data["results"][0]["full_name"], "Priya Shah")
+
+    def test_doctor_can_search_own_patients_by_phone(self):
+        Patient.objects.create(doctor=self.doctor, full_name="Priya Shah", phone_number="1112223333")
+        resp = self.client.get(reverse("patient-list-create") + "?search=222333", **self.headers)
+        self.assertEqual(resp.data["count"], 1)
+
+    def test_search_never_returns_other_doctors_patients(self):
+        Patient.objects.create(doctor=self.other_doctor, full_name="Priya Shah")
+        resp = self.client.get(reverse("patient-list-create") + "?search=priya", **self.headers)
+        self.assertEqual(resp.data["count"], 0)
+
+    def test_search_with_no_match_returns_empty_not_error(self):
+        Patient.objects.create(doctor=self.doctor, full_name="Priya Shah")
+        resp = self.client.get(reverse("patient-list-create") + "?search=zzznomatch", **self.headers)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["count"], 0)
+
 
 class ReceptionistPatientManagementTests(APITestCase):
     def setUp(self):

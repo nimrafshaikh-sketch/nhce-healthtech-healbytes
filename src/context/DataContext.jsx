@@ -1,11 +1,12 @@
 import React, { createContext, useContext, useMemo, useReducer, useCallback, useEffect } from "react";
-import { initialPatients, initialMedications, initialAlerts, initialCheckins } from "../data/demoData";
-import { createPatient as createPatientApi, getPatients as getPatientsApi } from "../api/patients.api";
+import { initialPatients, initialMedications, initialAlerts, initialCheckins, initialAppointments } from "../data/demoData";
+import { createPatient as createPatientApi, getPatients as getPatientsApi, getMyPatientProfile } from "../api/patients.api";
 import { redeemInvitation as redeemInvitationApi, generateInvitation as generateInvitationApi } from "../api/invitation.api";
-import { submitCheckin as submitCheckinApi } from "../api/checkin.api";
+import { submitCheckin as submitCheckinApi, waitForCheckinResult } from "../api/checkin.api";
 import { analyzeCheckinAI } from "../api/ai.api";
-import { resolveAlert as resolveAlertApi } from "../api/alerts.api";
+import { resolveAlert as resolveAlertApi, getAlerts as getAlertsApi } from "../api/alerts.api";
 import { addMedication as addMedicationApi, markMedicationStatus as markMedicationStatusApi, getMedications as getMedicationsApi } from "../api/medication.api";
+import { getMyAppointments } from "../api/appointment.api";
 import { generateId } from "../utils/id";
 import { USE_MOCK } from "../api/client";
 import { useAuth } from "./AuthContext";
@@ -17,6 +18,7 @@ const initialState = {
   medications: initialMedications,
   alerts: initialAlerts,
   checkins: initialCheckins,
+  appointments: initialAppointments || [],
 };
 
 function reducer(state, action) {
@@ -27,6 +29,10 @@ function reducer(state, action) {
       return { ...state, patients: action.payload };
     case "SET_MEDICATIONS":
       return { ...state, medications: action.payload };
+    case "SET_ALERTS":
+      return { ...state, alerts: action.payload };
+    case "SET_APPOINTMENTS":
+      return { ...state, appointments: action.payload };
     case "ADD_PATIENT":
       return { ...state, patients: [action.payload, ...state.patients] };
     case "UPDATE_PATIENT":
@@ -104,19 +110,54 @@ export function DataProvider({ children }) {
   const { isAuthenticated, role, ready } = useAuth();
 
   const loadLiveData = useCallback(async () => {
-    if (USE_MOCK || !ready || !isAuthenticated || role !== "DOCTOR") return;
-    try {
-      const patients = await getPatientsApi();
-      dispatch({ type: "SET_PATIENTS", payload: patients });
-    } catch {
-      // Network/auth error - keep whatever's already in state rather than
-      // wiping it; the page-level fetches will surface their own errors.
-    }
-    try {
-      const medications = await getMedicationsApi();
-      dispatch({ type: "SET_MEDICATIONS", payload: medications });
-    } catch {
-      // same as above
+    if (USE_MOCK || !ready || !isAuthenticated) return;
+    if (role === "DOCTOR") {
+      try {
+        const patients = await getPatientsApi();
+        dispatch({ type: "SET_PATIENTS", payload: patients });
+      } catch {
+        // Network/auth error - keep whatever's already in state rather than
+        // wiping it; the page-level fetches will surface their own errors.
+      }
+      try {
+        const medications = await getMedicationsApi();
+        dispatch({ type: "SET_MEDICATIONS", payload: medications });
+      } catch {
+        // same as above
+      }
+      try {
+        const alerts = await getAlertsApi();
+        if (alerts) dispatch({ type: "SET_ALERTS", payload: alerts });
+      } catch {
+        // same as above
+      }
+      try {
+        const appointments = await getMyAppointments();
+        if (appointments) dispatch({ type: "SET_APPOINTMENTS", payload: appointments });
+      } catch {
+        // same as above
+      }
+    } else if (role === "PATIENT") {
+      // Previously `state.patients` was only ever live-fetched for role
+      // DOCTOR, so a patient logging in normally (not via fresh invitation
+      // redemption) had no own Patient record in state at all -
+      // getPatientById(user.id) fell through to the bare auth `user`
+      // object, and the whole patient dashboard/profile silently rendered
+      // undefined condition/riskLevel/caretaker/etc. Fetching the patient's
+      // own profile here and seeding it into `patients` fixes that for
+      // every page that reads it via getPatientById.
+      try {
+        const me = await getMyPatientProfile();
+        if (me) dispatch({ type: "SET_PATIENTS", payload: [me] });
+      } catch {
+        // same as above - keep whatever's already in state
+      }
+      try {
+        const medications = await getMedicationsApi();
+        dispatch({ type: "SET_MEDICATIONS", payload: medications });
+      } catch {
+        // same as above
+      }
     }
   }, [isAuthenticated, role, ready]);
 
@@ -149,8 +190,16 @@ export function DataProvider({ children }) {
   const submitCheckin = useCallback(
     async (patientId, payload) => {
       const fullPayload = { patientId, ...payload };
+      // One POST, not two: previously this also called analyzeCheckinAI,
+      // which in live mode hit the exact same /checkins/ endpoint a second
+      // time and created a duplicate check-in row per submission. The real
+      // AI verdict for a check-in isn't returned by the create call at all
+      // (Django computes it afterward via Celery) - waitForCheckinResult
+      // polls the same checkin back out until that verdict lands.
       const checkinBase = await submitCheckinApi(fullPayload);
-      const aiResult = await analyzeCheckinAI(fullPayload);
+      const aiResult = USE_MOCK
+        ? await analyzeCheckinAI(fullPayload)
+        : await waitForCheckinResult(checkinBase.id);
       const checkinRecord = { ...checkinBase, ...fullPayload, ...aiResult };
 
       dispatch({ type: "ADD_CHECKIN", payload: checkinRecord });

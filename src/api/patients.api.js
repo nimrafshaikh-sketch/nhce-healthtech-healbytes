@@ -91,6 +91,24 @@ export async function getPatients() {
   return list.map(normalizePatient);
 }
 
+// Server-side search over the doctor's own patients (name or phone,
+// case-insensitive partial match - see backend apps.patients.views.
+// PatientListCreateView.get_queryset `search` param). Previously
+// pages/doctor/Patients.jsx only ever filtered the single already-loaded
+// page of patients in the browser and never called the backend at all -
+// this is the real search integration for that screen. Mock mode has no
+// backend to hit, so callers should fall back to their own in-memory filter
+// there (the doctor Patients page does).
+export async function searchMyPatients(query) {
+  if (USE_MOCK) {
+    await mockDelay(150);
+    return null;
+  }
+  const data = await apiFetch(`${ENDPOINTS.PATIENTS}?search=${encodeURIComponent(query)}`);
+  const list = Array.isArray(data) ? data : data.results || [];
+  return list.map(normalizePatient);
+}
+
 export async function getPatientDetail(id) {
   if (USE_MOCK) {
     await mockDelay(200);

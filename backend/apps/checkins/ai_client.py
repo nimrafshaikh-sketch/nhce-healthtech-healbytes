@@ -195,20 +195,52 @@ def _build_historical_context(checkin) -> dict:
     }
 
 
+def _extract_symptoms_and_severity(checkin):
+    """Extract string symptoms list and severity string from checkin's symptoms, pain_level, or mood."""
+    symptom_list = []
+    max_severity = "moderate"
+    if isinstance(checkin.symptoms, list):
+        for s in checkin.symptoms:
+            if isinstance(s, str) and s.strip():
+                symptom_list.append(s.strip())
+            elif isinstance(s, dict):
+                name = s.get("name") or s.get("symptom") or s.get("title")
+                if name:
+                    symptom_list.append(str(name).strip())
+                sev = str(s.get("severity", "")).lower()
+                if sev in ("severe", "high"):
+                    max_severity = "severe"
+                elif sev in ("mild", "low") and max_severity != "severe":
+                    max_severity = "mild"
+    elif isinstance(checkin.symptoms, str) and checkin.symptoms.strip():
+        symptom_list = [s.strip() for s in checkin.symptoms.split(",") if s.strip()]
+
+    if checkin.pain_level is not None:
+        severity = _severity_from_pain_level(checkin.pain_level)
+    else:
+        severity = max_severity
+
+    if str(checkin.mood).lower() in ("very_unwell", "very_poor", "severe", "critical", "not_good"):
+        severity = "severe"
+
+    return symptom_list, severity
+
+
 def _build_request_payload(checkin) -> dict:
     """Assemble complete AI analysis payload including checkin, medical context,
     and historical context."""
     patient = getattr(checkin, "patient", None)
     medical_context = _build_medical_context(patient) if patient else {"medical_history": [], "medication_adherence": []}
     historical_context = _build_historical_context(checkin)
+    symptoms_list, severity = _extract_symptoms_and_severity(checkin)
 
     return {
         "patient_id": str(checkin.patient_id),
         "request_id": str(checkin.id),
         "timestamp": timezone.now().isoformat(),
         "check_in": {
-            "symptoms": [s for s in checkin.symptoms if isinstance(s, str) and s.strip()],
-            "severity": _severity_from_pain_level(checkin.pain_level),
+            "symptoms": symptoms_list,
+            "severity": severity,
             "duration": {"value": 1, "unit": "days"},
         },
         "medical_context": medical_context,
@@ -243,7 +275,7 @@ def analyze_checkin(checkin) -> dict:
         logger.info("AI_ENGINE_URL not configured; skipping AI analysis for checkin %s", checkin.id)
         return {**UNAVAILABLE_RESULT, "reason": "AI engine not configured."}
 
-    valid_symptoms = [s for s in checkin.symptoms if isinstance(s, str) and s.strip()]
+    valid_symptoms, _ = _extract_symptoms_and_severity(checkin)
     if not valid_symptoms:
         logger.info("Checkin %s has no symptoms reported; skipping AI analysis.", checkin.id)
         return {**UNAVAILABLE_RESULT, "reason": "No symptoms reported; AI analysis skipped."}
@@ -276,7 +308,7 @@ def _serialize_patient_history_request(patient, as_of=None) -> dict:
     # 1. Check-ins
     checkins_data = []
     for c in DailyCheckin.objects.filter(patient=patient).order_by("checkin_date", "created_at"):
-        clean_symptoms = [s for s in c.symptoms if isinstance(s, str) and s.strip()]
+        clean_symptoms, _ = _extract_symptoms_and_severity(c)
         clean_vitals = {str(k): float(v) for k, v in (c.vitals or {}).items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
         checkins_data.append({
             "id": c.id,

@@ -28,7 +28,16 @@ export async function addMedication(patientId, formData) {
   }
 
   const frequency = FREQUENCY_MAP[formData.frequency] || "once_daily";
-  const reminder_times = TIME_MAP[formData.timeOfDay] || ["08:00"];
+  let reminder_times = formData.reminder_times;
+  if (!reminder_times || !reminder_times.length) {
+    if (frequency === "twice_daily") {
+      reminder_times = ["08:00", "20:00"];
+    } else if (frequency === "three_times_daily") {
+      reminder_times = ["08:00", "13:00", "20:00"];
+    } else {
+      reminder_times = TIME_MAP[formData.timeOfDay] || ["08:00"];
+    }
+  }
 
   const payload = {
     patient: Number(patientId),
@@ -52,6 +61,56 @@ export async function addMedication(patientId, formData) {
     timeOfDay: formData.timeOfDay || "MORNING",
     status: data.is_active ? "ACTIVE" : "INACTIVE",
   };
+}
+
+export async function updateMedication(medicationId, formData) {
+  if (USE_MOCK) {
+    await mockDelay(300);
+    return { id: medicationId, ...formData };
+  }
+
+  const payload = {};
+  if (formData.name !== undefined) payload.name = formData.name;
+  if (formData.dosage !== undefined) payload.dosage = formData.dosage;
+  if (formData.frequency !== undefined) payload.frequency = FREQUENCY_MAP[formData.frequency] || formData.frequency;
+  if (formData.instructions !== undefined) payload.instructions = formData.instructions;
+  if (formData.startDate !== undefined) payload.start_date = formData.startDate;
+  if (formData.endDate !== undefined) payload.end_date = formData.endDate || null;
+  if (formData.is_active !== undefined) payload.is_active = formData.is_active;
+
+  if (formData.reminder_times) {
+    payload.reminder_times = formData.reminder_times;
+  } else if (payload.frequency) {
+    if (payload.frequency === "twice_daily") {
+      payload.reminder_times = ["08:00", "20:00"];
+    } else if (payload.frequency === "three_times_daily") {
+      payload.reminder_times = ["08:00", "13:00", "20:00"];
+    } else {
+      payload.reminder_times = ["08:00"];
+    }
+  }
+
+  const data = await apiFetch(`/medications/${medicationId}/`, {
+    method: "PATCH",
+    body: payload,
+  });
+
+  return {
+    ...data,
+    patientId: data.patient,
+    startDate: data.start_date,
+    endDate: data.end_date,
+    status: data.is_active ? "ACTIVE" : "INACTIVE",
+  };
+}
+
+export async function deleteMedication(medicationId) {
+  if (USE_MOCK) {
+    await mockDelay(300);
+    return true;
+  }
+  await apiFetch(`/medications/${medicationId}/`, { method: "DELETE" });
+  return true;
 }
 
 export async function getMedications(patientId) {
@@ -83,6 +142,17 @@ export async function markMedicationStatus(medicationId, status) {
     await mockDelay(250);
     return { id: medicationId, status, takenAt: status === "TAKEN" ? new Date() : null };
   }
+  if (status === "TAKEN") {
+    try {
+      const logs = await apiFetch(ENDPOINTS.MEDICATION_REMINDERS(medicationId));
+      const list = Array.isArray(logs) ? logs : logs.results || [];
+      const pending = list.find((l) => !l.acknowledged_at);
+      if (pending) {
+        await apiFetch(ENDPOINTS.MEDICATION_REMINDERS_ACKNOWLEDGE(pending.id), { method: "POST" });
+      }
+    } catch {
+      // No dispatched reminder to acknowledge yet
+    }
+  }
   return { id: medicationId, status, takenAt: status === "TAKEN" ? new Date() : null };
 }
-

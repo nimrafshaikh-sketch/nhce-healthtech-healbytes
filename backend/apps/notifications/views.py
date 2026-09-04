@@ -47,8 +47,8 @@ class EmailNotificationLogListView(generics.ListAPIView):
     def get_queryset(self):
         qs = EmailNotificationLog.objects.filter(patient__doctor=self.request.user)
         patient_id = self.request.query_params.get("patient")
-        if patient_id:
-            qs = qs.filter(patient_id=patient_id)
+        if patient_id and str(patient_id).isdigit():
+            qs = qs.filter(patient_id=int(patient_id))
         recipient_type = self.request.query_params.get("recipient_type")
         if recipient_type:
             qs = qs.filter(recipient_type=recipient_type)

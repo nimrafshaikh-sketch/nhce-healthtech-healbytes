@@ -33,12 +33,33 @@ export async function apiFetch(path, { method = "GET", body, token } = {}) {
 
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({}));
-    const message =
-      errorBody.detail || errorBody.message ||
-      (typeof errorBody === "object" ? Object.values(errorBody).flat().join(" ") : "") ||
-      `Request failed (${res.status})`;
+    let message = "";
+    if (typeof errorBody === "string") {
+      message = errorBody;
+    } else if (errorBody && typeof errorBody === "object") {
+      if (typeof errorBody.detail === "string") {
+        message = errorBody.detail;
+      } else if (typeof errorBody.message === "string") {
+        message = errorBody.message;
+      } else {
+        const parts = [];
+        for (const [key, val] of Object.entries(errorBody)) {
+          const prefix = ["detail", "message", "non_field_errors", "error"].includes(key) ? "" : `${key}: `;
+          if (Array.isArray(val)) {
+            parts.push(`${prefix}${val.map((v) => (typeof v === "object" ? JSON.stringify(v) : String(v))).join(" ")}`);
+          } else if (typeof val === "object" && val !== null) {
+            parts.push(`${prefix}${JSON.stringify(val)}`);
+          } else {
+            parts.push(`${prefix}${String(val)}`);
+          }
+        }
+        message = parts.join(" ");
+      }
+    }
+    if (!message) message = `Request failed (${res.status})`;
     const err = new Error(message);
     err.status = res.status;
+    err.data = errorBody;
     throw err;
   }
   if (res.status === 204) return null;

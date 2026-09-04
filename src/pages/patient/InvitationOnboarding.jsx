@@ -46,7 +46,8 @@ export default function InvitationOnboarding() {
       setSuccess(true);
       setTimeout(() => navigate("/patient/home"), 1000);
     } catch (err) {
-      setError(err.message || "Failed to redeem invitation code.");
+      const msg = typeof err === "string" ? err : err?.message || "Failed to redeem invitation code.";
+      setError(typeof msg === "object" ? JSON.stringify(msg) : String(msg));
     } finally {
       setLoading(false);
     }

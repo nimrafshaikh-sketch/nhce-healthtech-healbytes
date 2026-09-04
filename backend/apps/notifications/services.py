@@ -53,7 +53,22 @@ def send_caretaker_checkin_email(checkin):
 
     subject = f"Check-in update for {patient.full_name}"
     greeting_name = patient.caretaker_name or "there"
-    symptoms_text = ", ".join(checkin.symptoms) if checkin.symptoms else "none reported"
+    
+    symptoms = checkin.symptoms
+    if isinstance(symptoms, list):
+        symptom_strs = []
+        for s in symptoms:
+            if isinstance(s, str) and s.strip():
+                symptom_strs.append(s.strip())
+            elif isinstance(s, dict):
+                name = s.get("name") or s.get("symptom") or s.get("title")
+                if name:
+                    symptom_strs.append(str(name).strip())
+        symptoms_text = ", ".join(symptom_strs) if symptom_strs else "none reported"
+    elif isinstance(symptoms, str) and symptoms.strip():
+        symptoms_text = symptoms.strip()
+    else:
+        symptoms_text = "none reported"
     body = "\n".join([
         f"Hi {greeting_name},",
         "",

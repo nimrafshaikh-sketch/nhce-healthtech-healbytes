@@ -1,19 +1,7 @@
-import { USE_MOCK, mockDelay } from "./client";
+import { apiFetch, USE_MOCK, mockDelay } from "./client";
 import { initialPrescriptions } from "../data/demoData";
 import { addMedication, getMedications } from "./medication.api";
 
-// There is no separate "Prescription" resource in the Django backend - a
-// digital prescription IS one or more apps.medications.Medication rows
-// (apps/patients/serializers.py has no prescription concept either). The
-// previous live-mode implementation here POSTed to `/prescriptions` and
-// GETed `/patients/:id/prescriptions`, neither of which exist server-side -
-// every live call 404'd silently (caught by the modal's generic
-// "Failed to create prescription" alert, so it looked like a validation
-// error rather than a wrong endpoint). Root-cause fix: route through the
-// real Medication endpoints, one Medication per line item, and adapt the
-// response back into the {id, date, medications: [...]} shape the existing
-// "Prescriptions" tab UI already renders - no UI changes needed, and no
-// second parallel prescription system introduced.
 let mockPrescriptions = [...initialPrescriptions];
 
 export async function createPrescription({ patientId, medications = [] }) {
@@ -55,13 +43,34 @@ export async function getPrescriptionsForPatient(patientId) {
     await mockDelay(400);
     return mockPrescriptions.filter((p) => p.patientId === patientId);
   }
-  // Real backend has no prescription "batch" grouping - render one card per
-  // Medication, each wrapped as a single-item "prescription" so the
-  // existing UI (which maps over `.medications`) needs no changes.
+  try {
+    const raw = await apiFetch(`/medications/prescriptions/?patient=${patientId}`);
+    const prescList = Array.isArray(raw) ? raw : (raw?.results || []);
+    if (prescList.length > 0) {
+      return prescList.map((p) => ({
+        id: p.id,
+        date: p.prescribed_at || p.created_at || new Date().toISOString(),
+        status: p.status || "ACTIVE",
+        medications: [
+          {
+            name: p.medication_name,
+            dosage: p.dosage,
+            frequency: p.frequency,
+            duration: p.duration || "Ongoing",
+            instructions: p.instructions || "Take as directed",
+          }
+        ]
+      }));
+    }
+  } catch (e) {
+    console.warn("Could not fetch /medications/prescriptions, falling back to /medications:", e);
+  }
+
+  // Fallback to active medications
   const meds = await getMedications(patientId);
-  return meds.map((m) => ({
+  return (meds || []).map((m) => ({
     id: `med-${m.id}`,
-    date: m.created_at || m.startDate,
+    date: m.created_at || m.startDate || new Date().toISOString(),
     status: m.is_active ? "ACTIVE" : "INACTIVE",
     medications: [
       {
@@ -69,7 +78,7 @@ export async function getPrescriptionsForPatient(patientId) {
         dosage: m.dosage,
         frequency: m.frequency,
         duration: m.endDate ? `until ${m.endDate}` : "ongoing",
-        instructions: m.instructions,
+        instructions: m.instructions || "Take as directed",
       },
     ],
   }));

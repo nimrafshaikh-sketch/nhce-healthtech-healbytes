@@ -36,8 +36,8 @@ export function AuthProvider({ children }) {
       setError(null);
       try {
         const { token, user } = await loginApi({ role, ...credentials });
-        const effectiveRole = user?.role || role;
-        persist({ role: effectiveRole, user, token });
+        const effectiveRole = (user?.role || role)?.toUpperCase();
+        persist({ role: effectiveRole, user: user ? { ...user, role: effectiveRole } : user, token });
         setStatus("idle");
         return { user, role: effectiveRole };
       } catch (err) {

@@ -1,3 +1,4 @@
+from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -5,6 +6,8 @@ from apps.patients.models import Patient
 from apps.patients.serializers import PatientCreateSerializer
 
 from .models import InvitationCode
+
+User = get_user_model()
 
 
 class InvitationCodeSerializer(serializers.ModelSerializer):
@@ -88,6 +91,18 @@ class InvitationRedeemSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid invitation code.")
         if not invitation.is_valid:
             raise serializers.ValidationError("This invitation code has expired, been used, or was revoked.")
+        return value
+
+    def validate_email(self, value):
+        value = value.strip().lower()
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("An account with this email address already exists. Please choose another email or sign in.")
+        return value
+
+    def validate_username(self, value):
+        value = value.strip()
+        if User.objects.filter(username__iexact=value).exists():
+            raise serializers.ValidationError("An account with this username already exists. Please choose a different username.")
         return value
 
 

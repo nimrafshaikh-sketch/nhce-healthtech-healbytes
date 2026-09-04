@@ -5,6 +5,7 @@ from rest_framework.test import APITestCase
 
 from apps.appointments.models import Appointment
 from apps.core.test_utils import auth_headers, make_doctor, make_patient_user, make_receptionist
+from apps.notifications.models import Notification
 from apps.patients.models import Patient
 
 
@@ -29,6 +30,24 @@ class AppointmentApiTests(APITestCase):
         appt = Appointment.objects.get(id=resp.data["id"])
         self.assertEqual(appt.created_by_id, self.receptionist.id)
         self.assertEqual(appt.status, "scheduled")
+
+    def test_receptionist_booking_notifies_both_doctor_and_patient(self):
+        payload = {"patient": self.patient.id, "doctor": self.doctor.id, "scheduled_at": self.when}
+        resp = self.client.post(reverse("appointment-list-create"), payload, format="json", **self.reception_headers)
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
+        doctor_notif = Notification.objects.get(user=self.doctor)
+        self.assertEqual(doctor_notif.notification_type, Notification.NotificationType.APPOINTMENT)
+        patient_notif = Notification.objects.get(user=self.patient_user)
+        self.assertEqual(patient_notif.notification_type, Notification.NotificationType.APPOINTMENT)
+
+    def test_doctor_booking_own_appointment_only_notifies_patient_not_self(self):
+        payload = {"patient": self.patient.id, "doctor": self.doctor.id, "scheduled_at": self.when}
+        resp = self.client.post(reverse("appointment-list-create"), payload, format="json", **self.doctor_headers)
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
+        self.assertFalse(Notification.objects.filter(user=self.doctor).exists())
+        self.assertTrue(Notification.objects.filter(user=self.patient_user).exists())
 
     def test_doctor_books_own_patient_appointment(self):
         payload = {"patient": self.patient.id, "doctor": self.doctor.id, "scheduled_at": self.when}

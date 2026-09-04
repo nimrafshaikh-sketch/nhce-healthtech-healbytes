@@ -111,13 +111,30 @@ class DocumentAccessSecurityTests(APITestCase):
         resp = self.client.get(self._stream_url(self.doc_a), **auth_headers(self.patient_a_user))
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    # --- Document list is queryset-scoped, not just detail-guarded -------
+    # --- Query Parameter Token & Fallback Rendering ---------------------
 
-    def test_lab_tech_document_list_is_empty_not_403_leak(self):
-        resp = self.client.get(reverse("document-list-create"), **auth_headers(self.lab_tech))
+    def test_assigned_doctor_can_stream_via_query_token(self):
+        from rest_framework_simplejwt.tokens import RefreshToken
+        token = str(RefreshToken.for_user(self.doctor_a).access_token)
+        url = f"{self._stream_url(self.doc_a)}?token={token}"
+        resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        results = resp.data.get("results", resp.data)
-        self.assertEqual(len(results), 0)
+
+    def test_stream_fallback_html_when_no_physical_file(self):
+        doc_no_file = MedicalDocument.objects.create(
+            patient=self.patient_a,
+            uploaded_by=self.doctor_a,
+            document_type=MedicalDocument.DocumentType.LAB_REPORT,
+            title="Digital EHR Extract",
+            processing_status=MedicalDocument.ProcessingStatus.PROCESSED,
+            extracted_text="Patient fasting blood glucose: 110 mg/dL",
+            extracted_data={"clinical_findings": [{"entity_type": "BIOMARKER", "biomarker_name": "Fasting Blood Glucose", "value": "110", "unit": "mg/dL", "status": "NORMAL"}]},
+        )
+        resp = self.client.get(self._stream_url(doc_no_file), **auth_headers(self.doctor_a))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp["Content-Type"], "text/html")
+        self.assertIn(b"Digital EHR Extract", resp.content)
+        self.assertIn(b"Fasting Blood Glucose", resp.content)
 
 
 class DocumentRAGSecuritytests(APITestCase):

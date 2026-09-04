@@ -15,6 +15,7 @@ class Notification(TimeStampedModel):
         INVITATION = "invitation", "Invitation"
         LAB_TEST_REQUEST = "lab_test_request", "New lab test request"
         LAB_RESULT_READY = "lab_result_ready", "Lab result ready for review"
+        APPOINTMENT = "appointment", "Appointment"
         GENERAL = "general", "General"
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications")

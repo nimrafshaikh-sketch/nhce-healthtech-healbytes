@@ -3,6 +3,7 @@ import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { Users, UserPlus, LogOut, HeartPulse } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import Button from "../ui/Button";
+import NotificationBell from "./NotificationBell";
 
 export default function ReceptionistLayout() {
   const { user, logout } = useAuth();
@@ -58,6 +59,7 @@ export default function ReceptionistLayout() {
           </div>
 
           <div className="flex items-center gap-3">
+            <NotificationBell />
             <div className="text-right hidden sm:block">
               <p className="text-xs font-semibold text-ink-900">{user?.first_name || user?.username || "Reception Staff"}</p>
               <p className="text-[10px] text-ink-400">Front Desk Officer</p>

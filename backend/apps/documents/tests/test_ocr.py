@@ -52,7 +52,7 @@ class RealImageOCRTests(APITestCase):
         try:
             import pytesseract
             pytesseract.get_tesseract_version()
-        except (ImportError, EnvironmentError, pytesseract.TesseractNotFoundError):
+        except Exception:
             self.skipTest("Tesseract not installed in environment")
         
         if not _PIL_AVAILABLE:

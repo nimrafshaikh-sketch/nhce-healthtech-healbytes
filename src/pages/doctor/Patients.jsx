@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, Plus } from "lucide-react";
+import { Search, Plus, Loader2 } from "lucide-react";
 import Topbar from "../../components/layout/Topbar";
 import Button from "../../components/ui/Button";
 import PatientCard from "../../components/healthcare/PatientCard";
@@ -8,6 +8,8 @@ import RiskBadge from "../../components/healthcare/RiskBadge";
 import EmptyState from "../../components/ui/EmptyState";
 import { useData } from "../../context/DataContext";
 import { formatRelativeTime } from "../../utils/dateUtils";
+import { searchMyPatients } from "../../api/patients.api";
+import { USE_MOCK } from "../../api/client";
 
 const FILTERS = [
   { key: "ALL", label: "All" },
@@ -17,19 +19,59 @@ const FILTERS = [
 ];
 
 export default function Patients() {
-  const { patients } = useData();
+  const { patients: allPatients } = useData();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("ALL");
+  // Debounced server-side search results (live mode only - see
+  // api/patients.api.js::searchMyPatients). null means "not currently
+  // searching", i.e. fall back to the doctor's already-loaded full list.
+  const [liveResults, setLiveResults] = useState(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState(null);
+
+  useEffect(() => {
+    if (USE_MOCK) return; // no backend to search - mock mode filters in-memory below
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setLiveResults(null);
+      setSearchError(null);
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    setSearchError(null);
+    const handle = setTimeout(async () => {
+      try {
+        const results = await searchMyPatients(trimmed);
+        setLiveResults(results);
+      } catch (err) {
+        setSearchError(err.message || "Search failed. Please try again.");
+        setLiveResults(null);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 350);
+    return () => clearTimeout(handle);
+  }, [query]);
+
+  const baseList = liveResults !== null ? liveResults : allPatients;
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
-    return patients.filter((p) => {
+    return baseList.filter((p) => {
       const matchesFilter = filter === "ALL" || p.riskLevel === filter;
-      const matchesQuery = p.name.toLowerCase().includes(q) || p.condition.toLowerCase().includes(q);
+      // Live mode: liveResults already came back name/phone-filtered from
+      // the backend, so re-filtering by the same free text here would be
+      // redundant. Mock mode has no backend to hit, so it still needs the
+      // in-memory filter.
+      const matchesQuery =
+        !USE_MOCK || !q
+          ? true
+          : (p.name || "").toLowerCase().includes(q) || (p.condition || "").toLowerCase().includes(q);
       return matchesFilter && matchesQuery;
     });
-  }, [patients, filter, query]);
+  }, [baseList, filter, query]);
 
   return (
     <>
@@ -42,8 +84,14 @@ export default function Patients() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search patients…"
-              className="w-full rounded-xl border border-ink-300/30 bg-white py-2.5 pl-9 pr-3 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              className="w-full rounded-xl border border-ink-300/30 bg-white py-2.5 pl-9 pr-9 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             />
+            {searchLoading && (
+              <Loader2
+                size={15}
+                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-ink-300"
+              />
+            )}
           </div>
           <Button leftIcon={<Plus size={16} />} onClick={() => navigate("/doctor/patients/new")}>
             Add Patient
@@ -65,6 +113,12 @@ export default function Patients() {
             </button>
           ))}
         </div>
+
+        {searchError && (
+          <div className="mb-5 rounded-xl border border-risk-high/30 bg-risk-high-bg px-4 py-3 text-sm text-risk-high">
+            {searchError}
+          </div>
+        )}
 
         {filtered.length ? (
           <>
