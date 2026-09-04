@@ -11,10 +11,10 @@ from app.analysis import medication_adherence
 from app.analysis.medication_adherence import (
     ADHERENCE_CONTRIBUTION,
     MEDICATION_ADJUSTMENT_MAX,
+    MedicationAdherenceRecord,
+    MedicationAdherenceStatus,
     assess_medication_adherence,
 )
-from app.schemas.common import MedicationAdherenceStatus
-from app.schemas.request import MedicationAdherenceRecord
 
 # Forbidden affirmative clinical/medication-recommendation claims: none of
 # these should ever appear in reason text produced by this module.

@@ -1,15 +1,23 @@
 import { apiFetch, USE_MOCK, mockDelay } from "./client";
 
-export async function orderLabTest({ patientId, testName, priority = "routine", notes = "" }) {
+export async function orderLabTest(data) {
+  const patientId = data.patientId || data.patient;
+  const testName = data.testName || data.test_name || data.testType;
+  const priority = data.priority || "routine";
+  const notes = data.notes || "";
+
   if (USE_MOCK) {
     await mockDelay(300);
     return {
       id: Math.floor(Math.random() * 1000) + 1,
       patient: patientId,
+      patientId,
       test_name: testName,
+      testName,
       priority,
       notes,
       status: "requested",
+      createdAt: new Date().toISOString(),
       created_at: new Date().toISOString(),
     };
   }
@@ -55,3 +63,26 @@ export async function recordLabResult(requestId, { resultText, notes = "" }) {
     },
   });
 }
+
+export async function getLabQueue() {
+  return getLabRequests();
+}
+
+export async function updateLabTestStatus(reqId, status) {
+  if (status === "in_progress") {
+    return claimLabRequest(reqId);
+  }
+  return { id: reqId, status };
+}
+
+export async function submitLabResult(reqId, resultData) {
+  return recordLabResult(reqId, {
+    resultText: resultData.resultText || resultData.result_text || JSON.stringify(resultData),
+    notes: resultData.notes || "",
+  });
+}
+
+export async function getLabResultsForPatient(patientId) {
+  return getLabRequests(patientId);
+}
+

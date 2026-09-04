@@ -11,11 +11,11 @@ from apps.patients.models import Patient
 class DoctorAlertEmailTests(TestCase):
     def setUp(self):
         self.doctor = make_doctor()
-        self.patient = Patient.objects.create(doctor=self.doctor, full_name="Kate")
+        self.patient = Patient.objects.create(doctor=self.doctor.doctor_profile, name="Kate", date_of_birth="1990-01-01")
 
     def test_high_severity_alert_emails_doctor(self):
         alert = Alert.objects.create(
-            patient=self.patient, severity="high", recipient_role="doctor_and_caretaker", reason="urgent",
+            patient=self.patient, risk_level="HIGH", recipient_type="DOCTOR", reason="urgent",
         )
         log = send_doctor_alert_email(alert)
         self.assertIsNotNone(log)
@@ -28,7 +28,7 @@ class DoctorAlertEmailTests(TestCase):
 
     def test_log_recorded_even_though_only_high_should_call_this(self):
         alert = Alert.objects.create(
-            patient=self.patient, severity="medium", recipient_role="doctor", reason="fyi",
+            patient=self.patient, risk_level="MEDIUM", recipient_type="DOCTOR", reason="fyi",
         )
         # service itself doesn't gate by severity - that's rules.should_email_doctor's job,
         # enforced by the caller (apps.alerts.tasks). Calling it directly still sends + logs.

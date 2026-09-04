@@ -10,7 +10,6 @@ import {
   Phone,
   CalendarDays,
   ShieldCheck,
-  AlertCircle,
   Stethoscope,
   RefreshCw,
 } from "lucide-react";
@@ -137,11 +136,9 @@ export default function ReceptionistDashboard() {
     try {
       const created = await createReceptionistPatient(newPatientData);
       setIsRegisterOpen(false);
-      // Auto-select and show in search results
       setSearchResults([created]);
       setSelectedPatient(created);
       setHasSearched(true);
-      // Reset form
       setNewPatientData({
         doctor: doctors[0]?.id || "",
         full_name: "",

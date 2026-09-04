@@ -7,8 +7,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "HealBytes AI Engine"
-    api_prefix: str = "/api/v1"
-    model_version: str = os.getenv("AI_MODEL_VERSION", "0.0.0-unimplemented")
+    model_version: str = os.getenv("AI_MODEL_VERSION", "rule-engine-v6")
     log_level: str = os.getenv("AI_LOG_LEVEL", "INFO")
 
 

@@ -10,9 +10,9 @@ from apps.patients.models import Patient
 class AlertApiTests(APITestCase):
     def setUp(self):
         self.doctor = make_doctor()
-        self.patient = Patient.objects.create(doctor=self.doctor, full_name="Grace")
+        self.patient = Patient.objects.create(doctor=self.doctor.doctor_profile, name="Grace", date_of_birth="1990-01-01")
         self.alert = Alert.objects.create(
-            patient=self.patient, severity="high", recipient_role="doctor_and_caretaker", reason="test",
+            patient=self.patient, risk_level="HIGH", recipient_type="DOCTOR", reason="test",
         )
         self.headers = auth_headers(self.doctor)
 

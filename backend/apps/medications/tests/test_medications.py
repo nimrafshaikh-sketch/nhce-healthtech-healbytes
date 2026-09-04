@@ -10,35 +10,30 @@ class MedicationApiTests(APITestCase):
     def setUp(self):
         self.doctor = make_doctor()
         self.patient_user = make_patient_user()
-        self.patient = Patient.objects.create(doctor=self.doctor, full_name="Dana", user=self.patient_user)
+        self.patient = Patient.objects.create(doctor=self.doctor.doctor_profile, name="Dana", user=self.patient_user, date_of_birth="1990-01-01")
         self.doctor_headers = auth_headers(self.doctor)
         self.patient_headers = auth_headers(self.patient_user)
 
     def test_doctor_can_prescribe_medication(self):
         payload = {
-            "patient": self.patient.id, "name": "Metformin", "dosage": "500mg",
-            "frequency": "twice_daily", "start_date": "2026-01-01",
-            "reminder_times": ["08:00", "20:00"],
+            "patient": self.patient.id, "medicine_name": "Metformin", "dosage": "500mg",
+            "frequency_per_day": 2, "start_date": "2026-01-01",
         }
         resp = self.client.post(reverse("medication-list-create"), payload, format="json", **self.doctor_headers)
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
 
     def test_patient_cannot_prescribe(self):
-        payload = {"patient": self.patient.id, "name": "X", "dosage": "1", "frequency": "once_daily",
+        payload = {"patient": self.patient.id, "medicine_name": "X", "dosage": "1", "frequency_per_day": 1,
                     "start_date": "2026-01-01"}
         resp = self.client.post(reverse("medication-list-create"), payload, format="json", **self.patient_headers)
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_invalid_reminder_time_rejected(self):
-        payload = {"patient": self.patient.id, "name": "X", "dosage": "1", "frequency": "once_daily",
-                    "start_date": "2026-01-01", "reminder_times": ["25:99"]}
-        resp = self.client.post(reverse("medication-list-create"), payload, format="json", **self.doctor_headers)
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
 
     def test_patient_sees_own_medications(self):
         from apps.medications.models import Medication
-        Medication.objects.create(patient=self.patient, prescribed_by=self.doctor, name="Aspirin",
-                                    dosage="75mg", frequency="once_daily", start_date="2026-01-01")
+        Medication.objects.create(patient=self.patient, prescribed_by=self.doctor, medicine_name="Aspirin",
+                                    dosage="75mg", frequency_per_day=1, start_date="2026-01-01")
         resp = self.client.get(reverse("medication-list-create"), **self.patient_headers)
         self.assertEqual(resp.data["count"], 1)
 
@@ -47,22 +42,24 @@ class MedicationReminderTaskTests(APITestCase):
     def test_dispatch_due_reminders_creates_log_and_notification(self):
         from django.utils import timezone
 
-        from apps.medications.models import Medication, MedicationReminderLog
+        from apps.medications.models import Medication, MedicationAdherence, MedicationReminder
         from apps.medications.tasks import dispatch_due_medication_reminders
         from apps.notifications.models import Notification
 
         doctor = make_doctor()
         patient_user = make_patient_user()
-        patient = Patient.objects.create(doctor=doctor, full_name="Eve", user=patient_user)
+        patient = Patient.objects.create(doctor=doctor.doctor_profile, name="Eve", user=patient_user, date_of_birth="1990-01-01")
         now = timezone.localtime()
         med = Medication.objects.create(
-            patient=patient, prescribed_by=doctor, name="Insulin", dosage="10u",
-            frequency="once_daily", start_date=now.date(), reminder_times=[now.strftime("%H:%M")],
+            patient=patient, prescribed_by=doctor, medicine_name="Insulin", dosage="10u",
+            frequency_per_day=1, start_date=now.date(),
+        )
+        MedicationReminder.objects.create(medication=med, reminder_time=now.time(), is_active=True),
         )
 
         dispatch_due_medication_reminders()
 
-        self.assertTrue(MedicationReminderLog.objects.filter(medication=med).exists())
+        self.assertTrue(MedicationAdherence.objects.filter(medication=med).exists())
         self.assertTrue(Notification.objects.filter(user=patient_user, notification_type="medication_reminder").exists())
 
         from django.core import mail
@@ -75,5 +72,5 @@ class MedicationReminderTaskTests(APITestCase):
 
         # running again in the same minute should not duplicate
         dispatch_due_medication_reminders()
-        self.assertEqual(MedicationReminderLog.objects.filter(medication=med).count(), 1)
+        self.assertEqual(MedicationAdherence.objects.filter(medication=med).count(), 1)
         self.assertEqual(len(mail.outbox), 1)

@@ -8,9 +8,7 @@ import {
   UploadCloud,
   FileText,
   ExternalLink,
-  ShieldAlert,
   ShieldCheck,
-  Clock,
 } from "lucide-react";
 import Topbar from "../../components/layout/Topbar";
 import RiskBadge from "../../components/healthcare/RiskBadge";
@@ -28,17 +26,21 @@ import MedicationFormModal from "../../components/healthcare/MedicationFormModal
 import LabOrderModal from "../../components/healthcare/LabOrderModal";
 import DocumentUploadModal from "../../components/healthcare/DocumentUploadModal";
 import PrescriptionVerificationModal from "../../components/healthcare/PrescriptionVerificationModal";
+import PrescriptionFormModal from "../../components/doctor/PrescriptionFormModal";
 import { useData } from "../../context/DataContext";
 import { getPatientAISummary } from "../../api/analytics.api";
-import { orderLabTest } from "../../api/lab.api";
+import { orderLabTest, getLabResultsForPatient } from "../../api/lab.api";
 import { getDocuments, getDocumentViewUrl } from "../../api/documents.api";
 import { formatRelativeTime, formatDayLabel, formatTime } from "../../utils/dateUtils";
+import { getPrescriptionsForPatient } from "../../api/prescription.api";
+import { useAuth } from "../../context/AuthContext";
 
-const TABS = ["Overview", "Documents", "Check-ins", "Medications", "History", "Analytics"];
+const TABS = ["Overview", "Documents", "Check-ins", "Medications", "Prescriptions", "Labs", "History", "Analytics"];
 
 export default function PatientProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const {
     getPatientById,
     getCheckinsForPatient,
@@ -55,6 +57,7 @@ export default function PatientProfile() {
 
   const [tab, setTab] = useState("Overview");
   const [medModalOpen, setMedModalOpen] = useState(false);
+  const [prescModalOpen, setPrescModalOpen] = useState(false);
   const [labModalOpen, setLabModalOpen] = useState(false);
   const [docUploadOpen, setDocUploadOpen] = useState(false);
   const [verifyPrescriptionDoc, setVerifyPrescriptionDoc] = useState(null);
@@ -64,6 +67,8 @@ export default function PatientProfile() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [documents, setDocuments] = useState([]);
   const [docsLoading, setDocsLoading] = useState(false);
+  const [prescriptions, setPrescriptions] = useState([]);
+  const [labs, setLabs] = useState([]);
 
   const fetchSummary = useCallback(() => {
     if (id) {
@@ -88,10 +93,28 @@ export default function PatientProfile() {
     }
   }, [id]);
 
+  const fetchPrescriptionsAndLabs = useCallback(async () => {
+    if (patient?.id) {
+      try {
+        const pData = await getPrescriptionsForPatient(patient.id);
+        setPrescriptions(Array.isArray(pData) ? pData : []);
+      } catch (e) {
+        console.error("Error loading prescriptions:", e);
+      }
+      try {
+        const lData = await getLabResultsForPatient(patient.id);
+        setLabs(Array.isArray(lData) ? lData : []);
+      } catch (e) {
+        console.error("Error loading labs:", e);
+      }
+    }
+  }, [patient?.id]);
+
   useEffect(() => {
     fetchSummary();
     fetchDocList();
-  }, [fetchSummary, fetchDocList]);
+    fetchPrescriptionsAndLabs();
+  }, [fetchSummary, fetchDocList, fetchPrescriptionsAndLabs]);
 
   if (!patient) {
     return (
@@ -109,7 +132,7 @@ export default function PatientProfile() {
     if (!followUpForm.date) return;
     const date = new Date(`${followUpForm.date}T${followUpForm.time || "10:00"}`);
     updatePatient(patient.id, {
-      nextFollowUp: { doctorName: "Dr. Sarah Chen", date, reason: followUpForm.reason || "Follow-up review" },
+      nextFollowUp: { doctorName: user?.name || "Dr. Sarah Chen", date, reason: followUpForm.reason || "Follow-up review" },
     });
     setFollowUpOpen(false);
   }
@@ -117,6 +140,7 @@ export default function PatientProfile() {
   async function handleOrderLab({ testName, priority, notes }) {
     await orderLabTest({ patientId: patient.id, testName, priority, notes });
     fetchSummary();
+    fetchPrescriptionsAndLabs();
   }
 
   function handleDocumentUploaded() {
@@ -127,6 +151,7 @@ export default function PatientProfile() {
   function handlePrescriptionVerified() {
     fetchDocList();
     fetchSummary();
+    fetchPrescriptionsAndLabs();
     if (refreshData) refreshData();
   }
 
@@ -164,6 +189,9 @@ export default function PatientProfile() {
             </Button>
             <Button variant="secondary" leftIcon={<Plus size={15} />} onClick={() => setMedModalOpen(true)}>
               Add Medication
+            </Button>
+            <Button variant="secondary" leftIcon={<FileText size={15} />} onClick={() => setPrescModalOpen(true)}>
+              Prescribe
             </Button>
             <Button variant="secondary" leftIcon={<FlaskConical size={15} />} onClick={() => setLabModalOpen(true)}>
               Order Lab Test
@@ -412,6 +440,97 @@ export default function PatientProfile() {
               />
             ))}
 
+          {tab === "Prescriptions" && (
+            <div className="space-y-4">
+              {prescriptions.length === 0 ? (
+                <EmptyState
+                  title="No prescriptions"
+                  description="You haven't issued any prescriptions for this patient."
+                  action={
+                    <Button size="sm" onClick={() => setPrescModalOpen(true)}>
+                      Issue Prescription
+                    </Button>
+                  }
+                />
+              ) : (
+                prescriptions.map((p) => (
+                  <div key={p.id} className="bg-white rounded-xl shadow-sm border border-brand-200 p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <h3 className="font-bold text-brand-800">Prescription Issued</h3>
+                      <span className="text-xs text-ink-400">{new Date(p.date || p.created_at || Date.now()).toLocaleDateString()}</span>
+                    </div>
+                    <div className="space-y-2 mt-3">
+                      {(p.medications || []).map((m, idx) => (
+                        <div key={idx} className="bg-brand-50 p-3 rounded-lg border border-brand-100 flex justify-between items-center">
+                          <div>
+                            <p className="font-bold text-brand-900">{m.name} - {m.dosage}</p>
+                            <p className="text-sm text-brand-700 mt-1">
+                              {m.frequency} for {m.duration}
+                            </p>
+                          </div>
+                          <span className="text-xs text-brand-600 font-medium">{m.instructions}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {tab === "Labs" && (
+            <div className="space-y-4">
+              {labs.length === 0 ? (
+                <EmptyState
+                  title="No lab results"
+                  description="No lab results are available."
+                  action={
+                    <Button size="sm" onClick={() => setLabModalOpen(true)}>
+                      Order Lab Test
+                    </Button>
+                  }
+                />
+              ) : (
+                labs.map((res) => (
+                  <div key={res.id} className="bg-white rounded-xl shadow-sm border border-ink-200 p-5">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="font-bold text-ink-900">{res.test_name || res.testType || "Lab Test"}</h3>
+                        <p className="text-xs text-ink-500">{new Date(res.created_at || res.date || Date.now()).toLocaleDateString()}</p>
+                      </div>
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${res.status === 'completed' || res.releaseStatus === 'RELEASED' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+                        {res.status === 'completed' || res.releaseStatus === 'RELEASED' ? 'Completed' : res.status || 'Pending'}
+                      </span>
+                    </div>
+                    <div className="space-y-3 border-t border-ink-100 pt-4">
+                      {res.result_text && (
+                        <div className="bg-canvas-soft p-3 rounded-lg border border-ink-100 text-sm text-ink-800 whitespace-pre-wrap">
+                          {res.result_text}
+                        </div>
+                      )}
+                      {Array.isArray(res.values) && res.values.map((v, i) => (
+                        <div key={i} className="flex justify-between items-center text-sm">
+                          <span className="font-medium text-ink-700">{v.name}</span>
+                          <div className="flex items-center gap-3">
+                            <span className={`font-bold ${v.flag !== 'NORMAL' ? 'text-red-600' : 'text-ink-900'}`}>
+                              {v.value} <span className="font-normal text-ink-500 text-xs">{v.unit}</span>
+                            </span>
+                            <span className="text-xs text-ink-400 w-16 text-right">{v.referenceRange}</span>
+                          </div>
+                        </div>
+                      ))}
+                      {res.notes && (
+                        <div className="text-xs text-ink-500">
+                          <strong>Notes:</strong> {res.notes}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
           {tab === "History" && (
             <div className="space-y-6">
               <AIHistorySummaryCard summary={aiSummary} loading={summaryLoading} />
@@ -459,6 +578,16 @@ export default function PatientProfile() {
         open={labModalOpen}
         onClose={() => setLabModalOpen(false)}
         onSubmit={handleOrderLab}
+      />
+
+      <PrescriptionFormModal
+        open={prescModalOpen}
+        onClose={() => {
+          setPrescModalOpen(false);
+          fetchPrescriptionsAndLabs();
+        }}
+        patientId={patient.id}
+        doctorId={user?.id}
       />
 
       <DocumentUploadModal
@@ -509,4 +638,3 @@ export default function PatientProfile() {
     </>
   );
 }
-

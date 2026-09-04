@@ -24,14 +24,18 @@ import PatientAnalytics from "../pages/patient/Analytics";
 import PatientHistory from "../pages/patient/History";
 import PatientQR from "../pages/patient/QR";
 import PatientProfilePage from "../pages/patient/Profile";
+import PatientLabResults from "../pages/patient/LabResults";
 
 import ReceptionistLayout from "../components/layout/ReceptionistLayout";
 import ReceptionistLogin from "../pages/receptionist/Login";
 import ReceptionistDashboard from "../pages/receptionist/Dashboard";
+import ReceptionistNewPatient from "../pages/receptionist/NewPatient";
 
 import LabLayout from "../components/layout/LabLayout";
 import LabLogin from "../pages/lab/Login";
 import LabDashboard from "../pages/lab/Dashboard";
+import LabTechQueue from "../pages/lab/Queue";
+import LabTechTestDetail from "../pages/lab/TestDetail";
 
 import { useAuth } from "../context/AuthContext";
 
@@ -74,34 +78,6 @@ export default function AppRouter() {
         <Route path="profile" element={<DoctorProfile />} />
       </Route>
 
-      {/* Receptionist Portal */}
-      <Route path="/receptionist/login" element={<ReceptionistLogin />} />
-      <Route
-        path="/receptionist"
-        element={
-          <RequireRole role="RECEPTIONIST">
-            <ReceptionistLayout />
-          </RequireRole>
-        }
-      >
-        <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<ReceptionistDashboard />} />
-      </Route>
-
-      {/* Lab Technician Portal */}
-      <Route path="/lab/login" element={<LabLogin />} />
-      <Route
-        path="/lab"
-        element={
-          <RequireRole role="LAB_TECH">
-            <LabLayout />
-          </RequireRole>
-        }
-      >
-        <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<LabDashboard />} />
-      </Route>
-
       {/* Patient Portal */}
       <Route path="/patient/login" element={<PatientLogin />} />
       <Route path="/patient/register" element={<InvitationOnboarding />} />
@@ -117,11 +93,43 @@ export default function AppRouter() {
         <Route path="home" element={<PatientHome />} />
         <Route path="check-in" element={<CheckIn />} />
         <Route path="medicines" element={<Medicines />} />
+        <Route path="labs" element={<PatientLabResults />} />
         <Route path="alerts" element={<PatientAlerts />} />
         <Route path="analytics" element={<PatientAnalytics />} />
         <Route path="history" element={<PatientHistory />} />
         <Route path="qr" element={<PatientQR />} />
         <Route path="profile" element={<PatientProfilePage />} />
+      </Route>
+
+      {/* Receptionist Portal */}
+      <Route path="/receptionist/login" element={<ReceptionistLogin />} />
+      <Route
+        path="/receptionist"
+        element={
+          <RequireRole role="RECEPTIONIST">
+            <ReceptionistLayout />
+          </RequireRole>
+        }
+      >
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={<ReceptionistDashboard />} />
+        <Route path="patients/new" element={<ReceptionistNewPatient />} />
+      </Route>
+
+      {/* Lab Technician Portal */}
+      <Route path="/lab/login" element={<LabLogin />} />
+      <Route
+        path="/lab"
+        element={
+          <RequireRole role="LAB_TECH">
+            <LabLayout />
+          </RequireRole>
+        }
+      >
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={<LabDashboard />} />
+        <Route path="queue" element={<LabTechQueue />} />
+        <Route path="test/:id" element={<LabTechTestDetail />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

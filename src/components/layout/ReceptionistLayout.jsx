@@ -1,6 +1,6 @@
 import React from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { Users, Calendar, LogOut, HeartPulse, Sparkles } from "lucide-react";
+import { Users, UserPlus, LogOut, HeartPulse } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import Button from "../ui/Button";
 
@@ -10,7 +10,7 @@ export default function ReceptionistLayout() {
 
   function handleLogout() {
     logout();
-    navigate("/login");
+    navigate("/receptionist/login");
   }
 
   return (
@@ -42,6 +42,17 @@ export default function ReceptionistLayout() {
               >
                 <Users size={15} />
                 Patient Services & Appointments
+              </NavLink>
+              <NavLink
+                to="/receptionist/patients/new"
+                className={({ isActive }) =>
+                  `flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    isActive ? "bg-brand-50 text-brand-800" : "text-ink-600 hover:bg-canvas-soft"
+                  }`
+                }
+              >
+                <UserPlus size={15} />
+                New Registration
               </NavLink>
             </nav>
           </div>

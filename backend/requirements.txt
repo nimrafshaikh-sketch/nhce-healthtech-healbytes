@@ -16,3 +16,6 @@ django-redis>=5.4
 # local dev machine: `brew install tesseract` or `apt install tesseract-ocr`).
 pytesseract>=0.3.10
 Pillow>=10.0
+django-stubs>=5.0
+django-stubs-ext>=5.0
+
