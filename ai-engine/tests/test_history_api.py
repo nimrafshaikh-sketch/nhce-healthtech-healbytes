@@ -136,14 +136,16 @@ def test_history_summary_omitting_medication_reminder_logs_field_still_works(cli
 
 def test_openapi_schema_includes_all_three_endpoints_and_history_schemas(client):
     """Guards discoverability for other teams: the auto-generated OpenAPI
-    spec (what /docs and any codegen tooling consume) must list all three
-    routes and the full Phase 2 + medication-adherence schema set."""
+    spec (what /docs and any codegen tooling consume) must list every route
+    and the full Phase 2 + medication-adherence + lab-analysis schema set."""
 
     response = client.get("/openapi.json")
     assert response.status_code == 200
     spec = response.json()
 
-    assert set(spec["paths"].keys()) == {"/api/v1/health", "/api/v1/analyze", "/api/v1/history/summary"}
+    assert set(spec["paths"].keys()) == {
+        "/api/v1/health", "/api/v1/analyze", "/api/v1/history/summary", "/api/v1/lab-analysis",
+    }
 
     schemas = spec["components"]["schemas"]
     for name in [
@@ -154,6 +156,8 @@ def test_openapi_schema_includes_all_three_endpoints_and_history_schemas(client)
         "MedicationAdherenceDetail",
         "AIAnalysisRequest",
         "AIAnalysisResponse",
+        "LabAnalysisRequest",
+        "LabAnalysisResponse",
     ]:
         assert name in schemas, f"{name} missing from OpenAPI schema"
 

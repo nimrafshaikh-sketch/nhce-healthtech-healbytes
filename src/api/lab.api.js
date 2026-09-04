@@ -86,3 +86,11 @@ export async function getLabResultsForPatient(patientId) {
   return getLabRequests(patientId);
 }
 
+export async function reviewLabResult(resultId) {
+  if (USE_MOCK) {
+    await mockDelay(250);
+    return { id: resultId, reviewed_at: new Date().toISOString() };
+  }
+  return apiFetch(`/labtests/results/${resultId}/review/`, { method: "POST" });
+}
+

@@ -14,6 +14,7 @@ class Notification(TimeStampedModel):
         ALERT = "alert", "Alert"
         INVITATION = "invitation", "Invitation"
         LAB_TEST_REQUEST = "lab_test_request", "New lab test request"
+        LAB_RESULT_READY = "lab_result_ready", "Lab result ready for review"
         GENERAL = "general", "General"
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications")
@@ -59,6 +60,7 @@ class EmailNotificationLog(TimeStampedModel):
         CARETAKER_UPDATE = "caretaker_update", "Caretaker check-in update"
         MEDICATION_REMINDER = "medication_reminder", "Medication reminder"
         LAB_TEST_REQUEST = "lab_test_request", "New lab test request (lab technician alert)"
+        LAB_RESULT_READY = "lab_result_ready", "Lab result ready for review (doctor alert)"
 
     recipient_type = models.CharField(max_length=10, choices=RecipientType.choices)
     recipient_user = models.ForeignKey(

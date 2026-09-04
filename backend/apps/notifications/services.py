@@ -194,3 +194,46 @@ def send_lab_tech_new_request_email(lab_request, lab_tech):
         category=EmailNotificationLog.Category.LAB_TEST_REQUEST, patient=patient,
         subject=subject, body=body, lab_test_request=lab_request,
     )
+
+
+def send_doctor_lab_result_email(result):
+    """Emails the requesting doctor that a lab result is ready, including the
+    AI Engine's deterministic reference-range read (see
+    apps.labtests.ai_client.analyze_lab_result / apps.labtests.tasks) -
+    called once per submitted result, alongside the in-app Notification, from
+    the same backend event (see apps.labtests.tasks.analyze_and_store_lab_result).
+    """
+    lab_request = result.request
+    patient = lab_request.patient
+    doctor = lab_request.requested_by
+    if not doctor or not doctor.email:
+        return None
+
+    subject = f"[HealBytes] Lab result ready: {lab_request.get_test_name_display()} - {patient.full_name}"
+    ai_lines = []
+    if result.ai_status:
+        ai_lines = [
+            "",
+            f"AI reference-range read: {result.ai_status}"
+            + (f" ({result.ai_numeric_value}{result.ai_unit}, range {result.ai_reference_range})"
+               if result.ai_numeric_value is not None else ""),
+            result.ai_explanation or "",
+        ]
+    body = "\n".join([
+        f"Hi Dr. {doctor.get_full_name() or doctor.email},",
+        "",
+        f"The {lab_request.get_test_name_display()} result for {patient.full_name} is ready.",
+        "",
+        f"Result: {result.result_text}",
+        *ai_lines,
+        "",
+        "Open the patient's profile to review this result.",
+        "This is an automated message from HealBytes.",
+    ])
+    return _send_and_log(
+        recipient_type=EmailNotificationLog.RecipientType.DOCTOR,
+        recipient_user=doctor, recipient_email=doctor.email,
+        category=EmailNotificationLog.Category.LAB_RESULT_READY, patient=patient,
+        subject=subject, body=body, lab_test_request=lab_request,
+        risk_level=result.ai_risk_level,
+    )

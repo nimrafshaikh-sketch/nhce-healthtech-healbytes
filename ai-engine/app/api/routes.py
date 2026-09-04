@@ -18,8 +18,11 @@ import logging
 
 from fastapi import APIRouter, HTTPException, status
 
+from app.analysis.lab_reference import assess_lab_result
 from app.analysis.response_builder import build_response
+from app.analysis.risk_engine import MODEL_VERSION
 from app.config import settings
+from app.schemas.lab import LabAnalysisRequest, LabAnalysisResponse
 from app.schemas.request import AIAnalysisRequest
 from app.schemas.response import AIAnalysisResponse
 
@@ -57,4 +60,40 @@ def analyze_checkin(payload: AIAnalysisRequest) -> AIAnalysisResponse:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal error while analyzing the check-in.",
+        )
+
+
+@router.post("/lab-analysis", response_model=LabAnalysisResponse, tags=["analysis"])
+def analyze_lab_result(payload: LabAnalysisRequest) -> LabAnalysisResponse:
+    """Deterministically assess a single lab-technician-submitted result
+    against known reference ranges (see `app/analysis/lab_reference.py`).
+    Same non-ML, non-diagnostic guarantees as `/analyze` - a transparent
+    rule-based baseline, not a clinical diagnostic system.
+    """
+
+    logger.info(
+        "Analyzing lab result %s (%s) for patient %s",
+        payload.request_id,
+        payload.test_name,
+        payload.patient_id,
+    )
+    try:
+        assessment = assess_lab_result(payload.test_name, payload.result_text)
+        return LabAnalysisResponse(
+            request_id=payload.request_id,
+            timestamp=payload.timestamp,
+            test_name=payload.test_name,
+            numeric_value=assessment["numeric_value"],
+            unit=assessment["unit"],
+            reference_range=assessment["reference_range"],
+            status=assessment["status"],
+            risk_level=assessment["risk_level"],
+            explanation=assessment["explanation"],
+            model_version=MODEL_VERSION,
+        )
+    except Exception:
+        logger.exception("Unexpected error analyzing lab result %s", payload.request_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal error while analyzing the lab result.",
         )
