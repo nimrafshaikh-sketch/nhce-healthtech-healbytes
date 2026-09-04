@@ -60,6 +60,19 @@ class LabTestResult(TimeStampedModel):
     """The result for a LabTestRequest. No file upload - there's no file
     storage configured in this build; result_text only.
     """
+
+    class AIStatus(models.TextChoices):
+        NORMAL = "NORMAL", "Normal"
+        ELEVATED = "ELEVATED", "Elevated"
+        LOW = "LOW", "Low"
+        UNKNOWN = "UNKNOWN", "Unknown"
+
+    class AIRiskLevel(models.TextChoices):
+        LOW = "low", "Low"
+        MEDIUM = "medium", "Medium"
+        HIGH = "high", "High"
+        UNAVAILABLE = "unavailable", "Unavailable"
+
     request = models.OneToOneField(LabTestRequest, on_delete=models.CASCADE, related_name="result")
     recorded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
@@ -73,6 +86,19 @@ class LabTestResult(TimeStampedModel):
         related_name="lab_results_reviewed", limit_choices_to={"role": "doctor"},
     )
     reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    # AI Engine analysis (see apps.labtests.ai_client / apps.labtests.tasks):
+    # populated asynchronously right after a lab tech submits result_text, by
+    # POSTing to the AI Engine's deterministic reference-range endpoint
+    # (ai-engine/app/api/routes.py::analyze_lab_result). Mirrors the
+    # ai_risk_level="unavailable" honest-default pattern already used on
+    # apps.checkins.models.DailyCheckin when the AI engine is unreachable.
+    ai_status = models.CharField(max_length=10, choices=AIStatus.choices, blank=True)
+    ai_risk_level = models.CharField(max_length=15, choices=AIRiskLevel.choices, blank=True)
+    ai_numeric_value = models.FloatField(null=True, blank=True)
+    ai_unit = models.CharField(max_length=20, blank=True)
+    ai_reference_range = models.CharField(max_length=50, blank=True)
+    ai_explanation = models.TextField(blank=True)
 
     class Meta:
         ordering = ["-created_at"]

@@ -1,4 +1,7 @@
+from unittest.mock import Mock, patch
+
 from django.core import mail
+from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -229,3 +232,140 @@ class LabTestAlertNotificationTests(APITestCase):
         self.assertFalse(Notification.objects.filter(user=other_doctor).exists())
         self.assertFalse(Notification.objects.filter(user=receptionist).exists())
         self.assertFalse(Notification.objects.filter(user=self.doctor).exists())
+
+
+class LabResultAIAnalysisTests(APITestCase):
+    """The workflow the LabTestRequest.test_name field comment always
+    intended: Lab Technician submits a result -> backend -> AI Engine's
+    deterministic reference-range endpoint -> structured analysis stored on
+    LabTestResult -> (if abnormal) the requesting doctor is alerted, in-app
+    and by email, from that same event."""
+
+    def setUp(self):
+        self.doctor = make_doctor()
+        self.lab_tech = make_lab_tech()
+        self.patient = Patient.objects.create(doctor=self.doctor, full_name="Mira")
+        self.doctor_headers = auth_headers(self.doctor)
+        self.lab_headers = auth_headers(self.lab_tech)
+        self.req = LabTestRequest.objects.create(
+            patient=self.patient, requested_by=self.doctor, test_name="HBA1C",
+            assigned_lab_tech=self.lab_tech, status="in_progress",
+        )
+
+    def _submit_result(self, result_text):
+        return self.client.post(reverse("labtest-result-create", args=[self.req.id]),
+                                 {"result_text": result_text}, format="json", **self.lab_headers)
+
+    @override_settings(AI_ENGINE_URL="")
+    def test_result_still_saves_when_ai_engine_not_configured(self):
+        resp = self._submit_result("HbA1c 8.2%")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        result = LabTestResult.objects.get(request=self.req)
+        self.assertEqual(result.ai_risk_level, "unavailable")
+        self.assertEqual(result.ai_status, "")
+
+    @override_settings(AI_ENGINE_URL="http://ai-engine.local", AI_ENGINE_TIMEOUT_SECONDS=1)
+    @patch("apps.labtests.ai_client.requests.post")
+    def test_submitting_result_calls_ai_engine_and_stores_structured_analysis(self, mock_post):
+        mock_post.return_value = Mock(
+            status_code=200,
+            json=lambda: {
+                "request_id": "1", "timestamp": "2024-01-01T00:00:00Z", "test_name": "HBA1C",
+                "numeric_value": 8.2, "unit": "%", "reference_range": "4.0 - 5.6%",
+                "status": "ELEVATED", "risk_level": "Medium",
+                "explanation": "HbA1c elevated.", "model_version": "rule-engine-v4",
+            },
+        )
+        mock_post.return_value.raise_for_status = lambda: None
+
+        resp = self._submit_result("HbA1c 8.2%")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
+        called_url = mock_post.call_args.args[0]
+        self.assertTrue(called_url.endswith("/api/v1/lab-analysis"))
+        sent_payload = mock_post.call_args.kwargs["json"]
+        self.assertEqual(sent_payload["test_name"], "HBA1C")
+        self.assertEqual(sent_payload["result_text"], "HbA1c 8.2%")
+
+        result = LabTestResult.objects.get(request=self.req)
+        self.assertEqual(result.ai_status, "ELEVATED")
+        self.assertEqual(result.ai_risk_level, "medium")
+        self.assertEqual(result.ai_numeric_value, 8.2)
+        self.assertEqual(result.ai_reference_range, "4.0 - 5.6%")
+        self.assertEqual(result.ai_explanation, "HbA1c elevated.")
+
+    @override_settings(AI_ENGINE_URL="http://ai-engine.local", AI_ENGINE_TIMEOUT_SECONDS=1)
+    @patch("apps.labtests.ai_client.requests.post")
+    def test_abnormal_result_notifies_and_emails_requesting_doctor(self, mock_post):
+        mock_post.return_value = Mock(
+            status_code=200,
+            json=lambda: {
+                "request_id": "1", "timestamp": "2024-01-01T00:00:00Z", "test_name": "HBA1C",
+                "numeric_value": 8.2, "unit": "%", "reference_range": "4.0 - 5.6%",
+                "status": "ELEVATED", "risk_level": "Medium",
+                "explanation": "HbA1c elevated.", "model_version": "rule-engine-v4",
+            },
+        )
+        mock_post.return_value.raise_for_status = lambda: None
+
+        resp = self._submit_result("HbA1c 8.2%")
+        result_id = resp.data["id"]
+
+        notif = Notification.objects.filter(
+            user=self.doctor, notification_type=Notification.NotificationType.LAB_RESULT_READY,
+            related_object_type="lab_test_result", related_object_id=result_id,
+        ).first()
+        self.assertIsNotNone(notif)
+        self.assertIn("Mira", notif.body)
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [self.doctor.email])
+
+        logs = EmailNotificationLog.objects.filter(
+            recipient_user=self.doctor, category=EmailNotificationLog.Category.LAB_RESULT_READY,
+        )
+        self.assertEqual(logs.count(), 1)
+        self.assertTrue(logs.first().sent)
+
+    @override_settings(AI_ENGINE_URL="http://ai-engine.local", AI_ENGINE_TIMEOUT_SECONDS=1)
+    @patch("apps.labtests.ai_client.requests.post")
+    def test_normal_result_does_not_notify_doctor(self, mock_post):
+        mock_post.return_value = Mock(
+            status_code=200,
+            json=lambda: {
+                "request_id": "1", "timestamp": "2024-01-01T00:00:00Z", "test_name": "HBA1C",
+                "numeric_value": 5.1, "unit": "%", "reference_range": "4.0 - 5.6%",
+                "status": "NORMAL", "risk_level": "Low",
+                "explanation": "HbA1c normal.", "model_version": "rule-engine-v4",
+            },
+        )
+        mock_post.return_value.raise_for_status = lambda: None
+
+        resp = self._submit_result("HbA1c 5.1%")
+        result_id = resp.data["id"]
+
+        self.assertFalse(Notification.objects.filter(
+            user=self.doctor, notification_type=Notification.NotificationType.LAB_RESULT_READY,
+            related_object_id=result_id,
+        ).exists())
+        self.assertEqual(len(mail.outbox), 0)
+
+    @override_settings(AI_ENGINE_URL="http://ai-engine.local", AI_ENGINE_TIMEOUT_SECONDS=1)
+    @patch("apps.labtests.ai_client.requests.post")
+    def test_ai_analysis_response_visible_on_result_serializer(self, mock_post):
+        mock_post.return_value = Mock(
+            status_code=200,
+            json=lambda: {
+                "request_id": "1", "timestamp": "2024-01-01T00:00:00Z", "test_name": "HBA1C",
+                "numeric_value": 8.2, "unit": "%", "reference_range": "4.0 - 5.6%",
+                "status": "ELEVATED", "risk_level": "Medium",
+                "explanation": "HbA1c elevated.", "model_version": "rule-engine-v4",
+            },
+        )
+        mock_post.return_value.raise_for_status = lambda: None
+        self._submit_result("HbA1c 8.2%")
+
+        detail_resp = self.client.get(reverse("labtest-request-detail", args=[self.req.id]), **self.doctor_headers)
+        self.assertEqual(detail_resp.data["result"]["ai_status"], "ELEVATED")
+        self.assertEqual(detail_resp.data["result"]["ai_risk_level"], "medium")
+        self.assertEqual(detail_resp.data["result"]["ai_explanation"], "HbA1c elevated.")

@@ -4,6 +4,38 @@ import { getLabResultsForPatient } from "../../api/lab.api";
 import EmptyState from "../../components/ui/EmptyState";
 import { FileText, CheckCircle, Clock } from "lucide-react";
 
+// Maps a raw backend LabTestRequest (with its nested `result`) onto the
+// shape this page renders. A result is only shown to the patient once the
+// doctor has reviewed it (result.reviewed_at set) - matches the backend's
+// intended "doctor reviews, then patient sees" flow
+// (LabTestResultReviewView). The AI Engine's reference-range read
+// (result.ai_status/ai_explanation - see apps.labtests.ai_client) is
+// surfaced as a single synthetic value row, since this build stores one
+// result_text per test rather than itemized panel values.
+function mapLabRequestToDisplay(req) {
+  const result = req.result;
+  const released = Boolean(result?.reviewed_at);
+  const values = [];
+  if (result?.ai_status) {
+    values.push({
+      name: req.test_name,
+      value: result.ai_numeric_value != null ? result.ai_numeric_value : result.ai_status,
+      unit: result.ai_numeric_value != null ? result.ai_unit : "",
+      flag: result.ai_status,
+      referenceRange: result.ai_reference_range || "",
+    });
+  }
+  return {
+    id: req.id,
+    testType: req.test_name,
+    date: req.created_at,
+    releaseStatus: released ? "RELEASED" : "PENDING",
+    values,
+    resultText: result?.result_text,
+    aiAnalysis: result?.ai_explanation,
+  };
+}
+
 export default function LabResults() {
   const { user } = useAuth();
   const [results, setResults] = useState([]);
@@ -11,7 +43,7 @@ export default function LabResults() {
 
   useEffect(() => {
     getLabResultsForPatient(user.id)
-      .then(setResults)
+      .then((data) => setResults(data.map(mapLabRequestToDisplay)))
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [user.id]);
@@ -55,6 +87,11 @@ export default function LabResults() {
 
               {res.releaseStatus === "RELEASED" ? (
                 <div className="space-y-3 border-t border-ink-100 pt-4">
+                  {res.resultText && (
+                    <div className="bg-canvas-soft p-3 rounded-lg border border-ink-100 text-sm text-ink-800 whitespace-pre-wrap">
+                      {res.resultText}
+                    </div>
+                  )}
                   {res.values.map((v, i) => (
                     <div key={i} className="flex justify-between items-center text-sm">
                       <span className="font-medium text-ink-700">{v.name}</span>

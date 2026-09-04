@@ -29,7 +29,7 @@ import PrescriptionVerificationModal from "../../components/healthcare/Prescript
 import PrescriptionFormModal from "../../components/doctor/PrescriptionFormModal";
 import { useData } from "../../context/DataContext";
 import { getPatientAISummary } from "../../api/analytics.api";
-import { orderLabTest, getLabResultsForPatient } from "../../api/lab.api";
+import { orderLabTest, getLabResultsForPatient, reviewLabResult } from "../../api/lab.api";
 import { getDocuments, getDocumentViewUrl } from "../../api/documents.api";
 import { formatRelativeTime, formatDayLabel, formatTime } from "../../utils/dateUtils";
 import { getPrescriptionsForPatient } from "../../api/prescription.api";
@@ -140,6 +140,11 @@ export default function PatientProfile() {
   async function handleOrderLab({ testName, priority, notes }) {
     await orderLabTest({ patientId: patient.id, testName, priority, notes });
     fetchSummary();
+    fetchPrescriptionsAndLabs();
+  }
+
+  async function handleReviewLabResult(resultId) {
+    await reviewLabResult(resultId);
     fetchPrescriptionsAndLabs();
   }
 
@@ -491,42 +496,64 @@ export default function PatientProfile() {
                   }
                 />
               ) : (
-                labs.map((res) => (
+                labs.map((res) => {
+                  const result = res.result;
+                  return (
                   <div key={res.id} className="bg-white rounded-xl shadow-sm border border-ink-200 p-5">
                     <div className="flex justify-between items-start mb-4">
                       <div>
                         <h3 className="font-bold text-ink-900">{res.test_name || res.testType || "Lab Test"}</h3>
                         <p className="text-xs text-ink-500">{new Date(res.created_at || res.date || Date.now()).toLocaleDateString()}</p>
                       </div>
-                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${res.status === 'completed' || res.releaseStatus === 'RELEASED' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
-                        {res.status === 'completed' || res.releaseStatus === 'RELEASED' ? 'Completed' : res.status || 'Pending'}
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${res.status === 'completed' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+                        {res.status === 'completed' ? 'Completed' : res.status || 'Pending'}
                       </span>
                     </div>
                     <div className="space-y-3 border-t border-ink-100 pt-4">
-                      {res.result_text && (
+                      {result?.result_text && (
                         <div className="bg-canvas-soft p-3 rounded-lg border border-ink-100 text-sm text-ink-800 whitespace-pre-wrap">
-                          {res.result_text}
+                          {result.result_text}
                         </div>
                       )}
-                      {Array.isArray(res.values) && res.values.map((v, i) => (
-                        <div key={i} className="flex justify-between items-center text-sm">
-                          <span className="font-medium text-ink-700">{v.name}</span>
+                      {result?.ai_status && (
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="font-medium text-ink-700">AI reference-range read</span>
                           <div className="flex items-center gap-3">
-                            <span className={`font-bold ${v.flag !== 'NORMAL' ? 'text-red-600' : 'text-ink-900'}`}>
-                              {v.value} <span className="font-normal text-ink-500 text-xs">{v.unit}</span>
+                            <span className={`font-bold ${result.ai_status !== 'NORMAL' ? 'text-red-600' : 'text-ink-900'}`}>
+                              {result.ai_numeric_value != null ? `${result.ai_numeric_value}${result.ai_unit}` : result.ai_status}
                             </span>
-                            <span className="text-xs text-ink-400 w-16 text-right">{v.referenceRange}</span>
+                            {result.ai_reference_range && (
+                              <span className="text-xs text-ink-400 w-24 text-right">{result.ai_reference_range}</span>
+                            )}
                           </div>
                         </div>
-                      ))}
-                      {res.notes && (
+                      )}
+                      {result?.ai_explanation && (
+                        <div className="bg-brand-50 p-3 rounded-lg border border-brand-100 text-sm text-brand-800">
+                          <strong>AI Summary:</strong> {result.ai_explanation}
+                        </div>
+                      )}
+                      {result?.notes && (
                         <div className="text-xs text-ink-500">
-                          <strong>Notes:</strong> {res.notes}
+                          <strong>Notes:</strong> {result.notes}
+                        </div>
+                      )}
+                      {result && !result.reviewed_at && (
+                        <div className="pt-1">
+                          <Button size="sm" variant="secondary" onClick={() => handleReviewLabResult(result.id)}>
+                            Mark Reviewed
+                          </Button>
+                        </div>
+                      )}
+                      {result?.reviewed_at && (
+                        <div className="text-xs text-green-700 flex items-center gap-1">
+                          <ShieldCheck size={12} /> Reviewed {new Date(result.reviewed_at).toLocaleDateString()}
                         </div>
                       )}
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           )}

@@ -12,8 +12,12 @@ class LabTestResultSerializer(serializers.ModelSerializer):
         fields = [
             "id", "request", "recorded_by", "recorded_by_name", "result_text", "notes",
             "reviewed_by", "reviewed_by_name", "reviewed_at", "created_at",
+            "ai_status", "ai_risk_level", "ai_numeric_value", "ai_unit", "ai_reference_range", "ai_explanation",
         ]
-        read_only_fields = ["id", "request", "recorded_by", "reviewed_by", "reviewed_at", "created_at"]
+        read_only_fields = [
+            "id", "request", "recorded_by", "reviewed_by", "reviewed_at", "created_at",
+            "ai_status", "ai_risk_level", "ai_numeric_value", "ai_unit", "ai_reference_range", "ai_explanation",
+        ]
 
 
 class LabTestResultCreateSerializer(serializers.ModelSerializer):

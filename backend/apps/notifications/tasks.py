@@ -75,6 +75,23 @@ def send_lab_tech_new_request_email_task(lab_request_id, lab_tech_id):
 
 
 @shared_task
+def send_doctor_lab_result_email_task(lab_result_id):
+    from apps.labtests.models import LabTestResult
+
+    from .services import send_doctor_lab_result_email
+
+    try:
+        result = LabTestResult.objects.select_related("request__patient", "request__requested_by").get(id=lab_result_id)
+    except LabTestResult.DoesNotExist:
+        return {"error": "lab result not found"}
+
+    log = send_doctor_lab_result_email(result)
+    if log is None:
+        return {"sent": False, "reason": "requesting doctor has no email on file"}
+    return {"sent": log.sent, "log_id": log.id}
+
+
+@shared_task
 def send_patient_medication_reminder_email_task(medication_id):
     from apps.medications.models import Medication
 

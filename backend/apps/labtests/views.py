@@ -125,6 +125,9 @@ class LabTestResultCreateView(APIView):
         lab_request.status = LabTestRequest.Status.COMPLETED
         lab_request.save(update_fields=["status"])
 
+        from .tasks import analyze_and_store_lab_result
+        analyze_and_store_lab_result.delay(result.id)
+
         return Response(LabTestResultSerializer(result).data, status=status.HTTP_201_CREATED)
 
 
