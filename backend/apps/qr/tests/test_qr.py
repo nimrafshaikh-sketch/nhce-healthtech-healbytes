@@ -164,3 +164,24 @@ class QRApiTests(APITestCase):
         self.assertEqual(QRScanLog.objects.count(), before + 1)
         self.assertTrue(QRScanLog.objects.filter(
             patient=self.patient, success=False, failure_reason__icontains="expired").exists())
+
+    def test_qr_token_payload_contains_no_medical_data(self):
+        """Ensure QR token payload only contains reference identifiers, no PHI/medical data."""
+        import jwt
+        from django.conf import settings
+        
+        gen = self.client.post(reverse("qr-generate"), **self.patient_headers)
+        token = gen.data["token"]
+        
+        decoded = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        
+        self.assertIn("type", decoded)
+        self.assertEqual(decoded["type"], "patient_qr")
+        self.assertIn("patient_id", decoded)
+        self.assertEqual(decoded["patient_id"], self.patient.id)
+        self.assertIn("iat", decoded)
+        self.assertIn("exp", decoded)
+        
+        # Verify there are exactly 4 keys, meaning no unexpected medical data was bundled
+        self.assertEqual(len(decoded.keys()), 4)
+

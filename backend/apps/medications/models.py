@@ -69,3 +69,26 @@ class MedicationReminderLog(TimeStampedModel):
         constraints = [
             models.UniqueConstraint(fields=["medication", "scheduled_for"], name="unique_medication_reminder_slot")
         ]
+
+
+class Prescription(TimeStampedModel):
+    """A doctor-issued prescription for a patient."""
+
+    patient = models.ForeignKey("patients.Patient", on_delete=models.CASCADE, related_name="prescriptions")
+    doctor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
+        related_name="prescriptions_issued", limit_choices_to={"role": "doctor"},
+    )
+    
+    medication_name = models.CharField(max_length=200)
+    dosage = models.CharField(max_length=100)
+    frequency = models.CharField(max_length=100)
+    duration = models.CharField(max_length=100)
+    instructions = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.medication_name} prescribed to {self.patient.full_name} by Dr. {getattr(self.doctor, 'last_name', self.doctor)}"
+

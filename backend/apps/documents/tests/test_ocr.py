@@ -28,7 +28,10 @@ except ImportError:  # pragma: no cover
 
 
 def _render_lab_report_png() -> bytes:
-    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+    except OSError:
+        font = ImageFont.load_default(size=32)
     img = Image.new("RGB", (750, 240), color="white")
     draw = ImageDraw.Draw(img)
     draw.text((15, 15), "CENTRAL LAB REPORT", fill="black", font=font)
@@ -46,6 +49,12 @@ class RealImageOCRTests(APITestCase):
         self.patient = Patient.objects.create(doctor=self.doctor, full_name="OCR Test Patient")
 
     def test_real_png_photo_of_lab_report_is_actually_ocrd_not_zero_findings(self):
+        try:
+            import pytesseract
+            pytesseract.get_tesseract_version()
+        except (ImportError, EnvironmentError, pytesseract.TesseractNotFoundError):
+            self.skipTest("Tesseract not installed in environment")
+        
         if not _PIL_AVAILABLE:
             self.skipTest("Pillow not installed in this environment")
 

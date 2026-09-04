@@ -13,7 +13,7 @@ from apps.alerts.models import Alert
 from apps.checkins.ai_client import get_patient_history_summary
 from apps.checkins.models import DailyCheckin
 from apps.core.permissions import IsDoctor, IsPatient
-from apps.medications.models import Medication, MedicationReminderLog
+from apps.medications.models import Medication, MedicationReminderLog, Prescription
 
 from .models import Patient
 
@@ -74,6 +74,18 @@ def _build_analytics(patient):
             "created_at": latest_lab.created_at.isoformat() if latest_lab.created_at else None,
         }
 
+    latest_prescription = Prescription.objects.filter(patient=patient).order_by("-created_at").first()
+    most_recent_prescription_data = None
+    if latest_prescription:
+        most_recent_prescription_data = {
+            "id": latest_prescription.id,
+            "medication_name": latest_prescription.medication_name,
+            "dosage": latest_prescription.dosage,
+            "frequency": latest_prescription.frequency,
+            "doctor": latest_prescription.doctor.get_full_name() if latest_prescription.doctor else None,
+            "created_at": latest_prescription.created_at.isoformat() if latest_prescription.created_at else None,
+        }
+
     return {
         "patient_id": patient.id,
         "checkins": {
@@ -96,7 +108,7 @@ def _build_analytics(patient):
         },
         "days_since_last_checkin": days_since,
         "most_recent_lab_result": most_recent_lab,
-        "most_recent_prescription": None,
+        "most_recent_prescription": most_recent_prescription_data,
     }
 
 

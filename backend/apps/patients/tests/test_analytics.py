@@ -95,14 +95,21 @@ class BuildAnalyticsExtensionTests(TestCase):
 
         self.assertEqual(analytics["most_recent_lab_result"]["result_text"], "newer")
 
-    def test_prescription_stays_none_model_does_not_exist(self):
-        # Prescription doesn't exist as a Django model anywhere in this repo
-        # yet - the key must still be present (stable shape for Member 4)
-        # with an honest None, never a fabricated value.
+    def test_prescription_is_none_when_no_prescriptions(self):
         analytics = _build_analytics(self.patient)
 
         self.assertIn("most_recent_prescription", analytics)
         self.assertIsNone(analytics["most_recent_prescription"])
+
+    def test_most_recent_prescription_is_returned(self):
+        from apps.medications.models import Prescription
+        Prescription.objects.create(
+            patient=self.patient, doctor=self.doctor,
+            medication_name="TestMed", dosage="10mg", frequency="daily", duration="10 days"
+        )
+        analytics = _build_analytics(self.patient)
+        self.assertIsNotNone(analytics["most_recent_prescription"])
+        self.assertEqual(analytics["most_recent_prescription"]["medication_name"], "TestMed")
 
     def test_existing_analytics_shape_preserved(self):
         analytics = _build_analytics(self.patient)

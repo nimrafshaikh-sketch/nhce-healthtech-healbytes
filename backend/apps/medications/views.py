@@ -6,8 +6,8 @@ from rest_framework.views import APIView
 from apps.core.permissions import IsDoctor, IsDoctorOfPatient, IsPatient
 from apps.patients.models import Patient
 
-from .models import Medication, MedicationReminderLog
-from .serializers import MedicationReminderLogSerializer, MedicationSerializer
+from .models import Medication, MedicationReminderLog, Prescription
+from .serializers import MedicationReminderLogSerializer, MedicationSerializer, PrescriptionSerializer
 
 
 @extend_schema_view(
@@ -69,3 +69,75 @@ class AcknowledgeReminderView(APIView):
         log.acknowledged_at = timezone.now()
         log.save(update_fields=["acknowledged_at"])
         return Response(MedicationReminderLogSerializer(log).data)
+
+
+@extend_schema_view(
+    get=extend_schema(tags=["Prescriptions"], summary="List prescriptions (doctor: own patients, patient: own)"),
+    post=extend_schema(tags=["Prescriptions"], summary="Add a prescription for a patient (Doctor only)"),
+)
+class PrescriptionListCreateView(generics.ListCreateAPIView):
+    serializer_class = PrescriptionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_doctor:
+            from apps.qr.models import QRAccessGrant
+            from django.db.models import Q
+            from django.utils import timezone
+            
+            # Allow assigned patients OR patients for which doctor has an active QR grant
+            active_grants = QRAccessGrant.objects.filter(doctor=user, expires_at__gte=timezone.now())
+            grant_patient_ids = active_grants.values_list('patient_id', flat=True)
+            
+            qs = Prescription.objects.filter(
+                Q(patient__doctor=user) | Q(patient_id__in=grant_patient_ids)
+            )
+        else:
+            qs = Prescription.objects.filter(patient__user=user)
+            
+        patient_id = self.request.query_params.get("patient")
+        if patient_id:
+            qs = qs.filter(patient_id=patient_id)
+        return qs.select_related("patient", "doctor")
+
+    def perform_create(self, serializer):
+        if not self.request.user.is_doctor:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only doctors can prescribe medications.")
+        
+        # When creating, only allow creating for own assigned patients, or if there's a QR grant.
+        patient_id = self.request.data.get("patient")
+        try:
+            patient = Patient.objects.get(id=patient_id)
+        except Patient.DoesNotExist:
+            from rest_framework.exceptions import NotFound
+            raise NotFound("Patient not found.")
+            
+        if patient.doctor != self.request.user:
+            from apps.qr.models import QRAccessGrant
+            if not QRAccessGrant.has_active_grant(patient=patient, doctor=self.request.user):
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied("You do not have access to this patient.")
+                
+        serializer.save(doctor=self.request.user, patient=patient)
+
+
+@extend_schema(tags=["Prescriptions"], summary="Retrieve/update/delete a prescription (Doctor only, allowed patients)")
+class PrescriptionDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = PrescriptionSerializer
+    permission_classes = [permissions.IsAuthenticated, IsDoctor]
+    
+    def get_queryset(self):
+        user = self.request.user
+        from apps.qr.models import QRAccessGrant
+        from django.db.models import Q
+        from django.utils import timezone
+        
+        active_grants = QRAccessGrant.objects.filter(doctor=user, expires_at__gte=timezone.now())
+        grant_patient_ids = active_grants.values_list('patient_id', flat=True)
+        
+        return Prescription.objects.filter(
+            Q(patient__doctor=user) | Q(patient_id__in=grant_patient_ids)
+        )
+

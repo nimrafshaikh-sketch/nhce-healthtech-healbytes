@@ -1,7 +1,11 @@
+from typing import TYPE_CHECKING
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
 
-User = get_user_model()
+if TYPE_CHECKING:
+    from apps.accounts.models import User
+else:
+    User = get_user_model()
 
 
 def make_doctor(email="doctor@example.com", **kwargs):
