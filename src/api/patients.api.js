@@ -36,13 +36,13 @@ function normalizePatient(raw) {
     // No backend equivalent yet for these demo/derived fields - left as
     // honest defaults (not fabricated data) until AI risk scoring is
     // surfaced on the Patient record itself.
-    riskLevel: raw.riskLevel ?? "LOW",
+    riskLevel: raw.risk_level ?? raw.riskLevel ?? null,
     riskScore: raw.riskScore ?? 0,
     condition: raw.condition ?? "",
     diagnosis: raw.diagnosis ?? "",
     allergies: raw.allergies ?? "",
-    medicationAdherencePct: raw.medicationAdherencePct ?? null,
-    lastCheckIn: raw.lastCheckIn ?? null,
+    medicationAdherencePct: raw.medication_adherence_pct ?? raw.medicationAdherencePct ?? null,
+    lastCheckIn: raw.last_checkin ?? raw.lastCheckIn ?? null,
     nextFollowUp: raw.nextFollowUp ?? null,
     joinedAt: raw.joinedAt ?? raw.created_at ?? null,
   };

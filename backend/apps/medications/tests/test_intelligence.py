@@ -7,7 +7,8 @@ and that nothing here ever writes to the Medication table. Also verifies
 the endpoint's authorization mirrors the document RAG endpoint (assigned
 doctor / active QR grant / patient self / everyone else denied).
 """
-from datetime import date, timedelta
+from datetime import timedelta
+from django.utils import timezone
 
 from django.urls import reverse
 from rest_framework import status
@@ -20,7 +21,7 @@ from apps.medications.models import Medication
 from apps.patients.models import Patient
 from apps.qr.models import QRAccessGrant
 
-TODAY = date.today()
+TODAY = timezone.localdate()
 
 
 class MedicationIntelligenceLogicTests(APITestCase):

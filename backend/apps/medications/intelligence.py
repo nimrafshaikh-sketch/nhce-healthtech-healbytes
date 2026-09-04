@@ -77,7 +77,7 @@ def _candidate_prescriptions(patient_id: int) -> List[Dict[str, Any]]:
 def analyze_patient_medications(patient_id: int) -> Dict[str, Any]:
     """Returns current/historical medications plus structured
     reconciliation observations for one patient. Read-only."""
-    today = timezone.now().date()
+    today = timezone.localdate()
 
     all_meds = list(Medication.objects.filter(patient_id=patient_id).order_by("-start_date"))
     current_meds = [m for m in all_meds if m.is_active_on(today)]

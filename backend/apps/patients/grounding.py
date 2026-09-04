@@ -58,7 +58,7 @@ def verify_clinical_brief_grounding(patient, brief_data: Dict[str, Any]) -> Dict
     real_meds = {m.id: m for m in Medication.objects.filter(id__in=med_ids_active_brief)}
 
     from django.utils import timezone
-    today = timezone.now().date()
+    today = timezone.localdate()
 
     identity_violations = []
     temporal_violations = []

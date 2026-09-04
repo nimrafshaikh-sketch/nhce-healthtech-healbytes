@@ -127,3 +127,26 @@ class PatientSearchTests(APITestCase):
         lab_tech = make_lab_tech()
         resp = self.client.get(reverse("patient-search") + "?phone_number=9998887777", **auth_headers(lab_tech))
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class PatientSerializerDerivedFieldsTests(APITestCase):
+    def setUp(self):
+        from apps.checkins.models import DailyCheckin
+        from apps.medications.models import Medication, MedicationReminderLog
+        self.doctor = make_doctor()
+        self.patient = Patient.objects.create(doctor=self.doctor, full_name="Test Patient")
+        
+        self.checkin = DailyCheckin.objects.create(
+            patient=self.patient,
+            ai_risk_level=DailyCheckin.RiskLevel.HIGH
+        )
+        self.med = Medication.objects.create(patient=self.patient, name="Med1", dosage="1", frequency="once_daily", start_date="2026-01-01")
+        MedicationReminderLog.objects.create(medication=self.med, scheduled_for="2026-01-01T08:00:00Z")
+        MedicationReminderLog.objects.create(medication=self.med, scheduled_for="2026-01-02T08:00:00Z", acknowledged_at="2026-01-02T08:05:00Z")
+
+    def test_derived_fields_in_serializer(self):
+        resp = self.client.get(reverse("patient-detail", args=[self.patient.id]), **auth_headers(self.doctor))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["risk_level"], "HIGH")
+        self.assertEqual(resp.data["medication_adherence_pct"], 50)
+        self.assertIsNotNone(resp.data["last_checkin"])

@@ -10,8 +10,8 @@ export default function ReceptionistLogin() {
   const { login, status, error } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({
-    email: USE_MOCK ? "reception@healbytes.demo" : "receptionist@healbytes.local",
-    password: USE_MOCK ? "demo1234" : "ReceptionistPass123!",
+    email: USE_MOCK ? "reception@healbytes.demo" : "",
+    password: USE_MOCK ? "demo1234" : "",
   });
 
   async function handleSubmit(e) {
@@ -91,7 +91,7 @@ export default function ReceptionistLogin() {
           </Button>
 
           <p className="mt-4 text-center text-xs text-ink-400">
-            Front desk staff credentials pre-filled for testing.
+            {USE_MOCK ? "Front desk staff credentials pre-filled for testing." : "Enter your receptionist credentials."}
           </p>
         </form>
       </div>

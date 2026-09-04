@@ -12,8 +12,8 @@ export default function PatientLogin() {
   const { patients } = useData();
   const navigate = useNavigate();
   const [form, setForm] = useState({
-    email: USE_MOCK ? (patients[0]?.email || "rahul.sharma@healbytes.demo") : "patient@healbytes.local",
-    password: USE_MOCK ? "demo1234" : "PatientPass123!",
+    email: USE_MOCK ? (patients[0]?.email || "rahul.sharma@healbytes.demo") : "",
+    password: USE_MOCK ? "demo1234" : "",
   });
 
   async function handleSubmit(e) {

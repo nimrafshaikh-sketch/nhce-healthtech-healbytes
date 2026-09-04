@@ -8,7 +8,7 @@ semantic-first path with the original keyword engine as fallback (Phase 2)
 - consistent with DocumentRAGSearchView's behavior, not a second,
 diverging implementation.
 """
-from datetime import date
+from django.utils import timezone
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APITestCase
@@ -18,7 +18,7 @@ from apps.medications.models import Medication
 from apps.patients.clinical_brief import build_clinical_brief
 from apps.patients.models import Patient
 
-TODAY = date.today()
+TODAY = timezone.localdate()
 
 
 class ClinicalBriefExtensionTests(APITestCase):

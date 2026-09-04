@@ -8,6 +8,9 @@ from .models import Patient
 class PatientSerializer(serializers.ModelSerializer):
     doctor_name = serializers.CharField(source="doctor.get_full_name", read_only=True)
     is_linked = serializers.BooleanField(read_only=True)
+    risk_level = serializers.SerializerMethodField()
+    last_checkin = serializers.SerializerMethodField()
+    medication_adherence_pct = serializers.SerializerMethodField()
 
     class Meta:
         model = Patient
@@ -16,8 +19,26 @@ class PatientSerializer(serializers.ModelSerializer):
             "gender", "phone_number", "address", "medical_notes",
             "caretaker_name", "caretaker_relationship", "caretaker_phone_number",
             "caretaker_email", "is_active", "is_linked", "created_at", "updated_at",
+            "risk_level", "last_checkin", "medication_adherence_pct",
         ]
-        read_only_fields = ["id", "doctor", "user", "is_linked", "created_at", "updated_at"]
+        read_only_fields = ["id", "doctor", "user", "is_linked", "created_at", "updated_at", "risk_level", "last_checkin", "medication_adherence_pct"]
+
+    def get_risk_level(self, obj):
+        latest = obj.checkins.order_by('-checkin_date', '-created_at').first()
+        return latest.ai_risk_level.upper() if latest and latest.ai_risk_level else None
+
+    def get_last_checkin(self, obj):
+        latest = obj.checkins.order_by('-checkin_date', '-created_at').first()
+        return latest.created_at if latest else None
+
+    def get_medication_adherence_pct(self, obj):
+        from apps.medications.models import MedicationReminderLog
+        logs = MedicationReminderLog.objects.filter(medication__patient=obj)
+        total = logs.count()
+        if total == 0:
+            return None
+        acknowledged = logs.filter(acknowledged_at__isnull=False).count()
+        return int((acknowledged / total) * 100)
 
 
 class PatientCreateSerializer(serializers.ModelSerializer):
@@ -47,6 +68,9 @@ class AdministrativePatientSerializer(serializers.ModelSerializer):
     """
     doctor_name = serializers.CharField(source="doctor.get_full_name", read_only=True)
     is_linked = serializers.BooleanField(read_only=True)
+    risk_level = serializers.SerializerMethodField()
+    last_checkin = serializers.SerializerMethodField()
+    medication_adherence_pct = serializers.SerializerMethodField()
 
     class Meta:
         model = Patient
@@ -55,8 +79,26 @@ class AdministrativePatientSerializer(serializers.ModelSerializer):
             "gender", "phone_number", "address",
             "caretaker_name", "caretaker_relationship", "caretaker_phone_number",
             "caretaker_email", "is_active", "is_linked", "created_at", "updated_at",
+            "risk_level", "last_checkin", "medication_adherence_pct",
         ]
-        read_only_fields = ["id", "user", "is_linked", "created_at", "updated_at"]
+        read_only_fields = ["id", "user", "is_linked", "created_at", "updated_at", "risk_level", "last_checkin", "medication_adherence_pct"]
+
+    def get_risk_level(self, obj):
+        latest = obj.checkins.order_by('-checkin_date', '-created_at').first()
+        return latest.ai_risk_level.upper() if latest and latest.ai_risk_level else None
+
+    def get_last_checkin(self, obj):
+        latest = obj.checkins.order_by('-checkin_date', '-created_at').first()
+        return latest.created_at if latest else None
+
+    def get_medication_adherence_pct(self, obj):
+        from apps.medications.models import MedicationReminderLog
+        logs = MedicationReminderLog.objects.filter(medication__patient=obj)
+        total = logs.count()
+        if total == 0:
+            return None
+        acknowledged = logs.filter(acknowledged_at__isnull=False).count()
+        return int((acknowledged / total) * 100)
 
 
 class ReceptionistPatientCreateSerializer(serializers.ModelSerializer):

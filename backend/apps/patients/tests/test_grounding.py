@@ -8,7 +8,7 @@ current pipeline is 100% deterministic (no LLM), a correctly-built brief
 should always pass every check - these tests confirm that, and separately
 prove the "unsupported claim" detector actually fires on a fabricated one.
 """
-from datetime import date
+from django.utils import timezone
 
 from rest_framework.test import APITestCase
 
@@ -18,7 +18,7 @@ from apps.patients.clinical_brief import build_clinical_brief
 from apps.patients.grounding import verify_clinical_brief_grounding
 from apps.patients.models import Patient
 
-TODAY = date.today()
+TODAY = timezone.localdate()
 
 
 class GroundingVerificationTests(APITestCase):
