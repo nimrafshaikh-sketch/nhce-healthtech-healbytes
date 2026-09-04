@@ -1,3 +1,4 @@
+import logging
 import os
 import mimetypes
 from django.db import transaction
@@ -12,8 +13,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.permissions import IsDoctor, IsPatient
+from apps.documents.embeddings import index_document_chunks, retrieve_patient_context_semantic
 from apps.documents.models import MedicalDocument
-from apps.documents.ocr import extract_text_from_file, extract_document_entities
+from apps.documents.ocr import extract_text_from_file, extract_document_entities, sanitize_document_text
 from apps.documents.serializers import (
     MedicalDocumentSerializer,
     MedicalDocumentUploadSerializer,
@@ -23,6 +25,8 @@ from apps.medications.models import Medication
 from apps.medications.serializers import MedicationSerializer
 from apps.patients.models import Patient
 from apps.qr.models import QRAccessGrant
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentListCreateView(generics.ListCreateAPIView):
@@ -85,9 +89,16 @@ class DocumentListCreateView(generics.ListCreateAPIView):
         # Run OCR extraction
         try:
             raw_text = extract_text_from_file(doc.file, file_type=file_type)
-            extraction_result = extract_document_entities(raw_text, doc.document_type)
-            
-            doc.extracted_text = raw_text
+            # Sanitize BEFORE persisting: extracted_text is what RAG chunks
+            # (apps.documents.rag.retrieve_patient_context) and any future
+            # LLM would read. Previously only an ephemeral local copy inside
+            # extract_document_entities() was sanitized while the raw,
+            # unsanitized OCR/text-extraction output was stored and served
+            # to retrieval - closing that gap here, not just at read time.
+            sanitized_text = sanitize_document_text(raw_text)
+            extraction_result = extract_document_entities(sanitized_text, doc.document_type)
+
+            doc.extracted_text = sanitized_text
             doc.extracted_data = extraction_result
             doc.processing_status = MedicalDocument.ProcessingStatus.PROCESSED
             
@@ -98,6 +109,18 @@ class DocumentListCreateView(generics.ListCreateAPIView):
             else:
                 doc.extraction_status = MedicalDocument.ExtractionStatus.NOT_APPLICABLE
             doc.save()
+
+            # Chunk + index for retrieval (Phase 1 pipeline's final step,
+            # and the persisted store Phase 2 semantic retrieval reads
+            # from). Failure here must never fail the upload itself - the
+            # document and its OCR/extraction results are already saved and
+            # correct; retrieval simply falls back to the existing
+            # keyword/TF-cosine path (rag.py) for this document until
+            # indexing succeeds.
+            try:
+                index_document_chunks(doc)
+            except Exception:
+                logger.exception("Chunk indexing failed for document %s; retrieval falls back to keyword search.", doc.id)
         except Exception as exc:
             doc.processing_status = MedicalDocument.ProcessingStatus.FAILED
             doc.save()
@@ -266,11 +289,24 @@ class DocumentRAGSearchView(APIView):
         else:
             raise PermissionDenied("Non-clinical staff cannot access RAG retrieval.")
 
-        rag_engine = get_patient_rag_engine()
-        results = rag_engine.retrieve_patient_context(patient_id=patient.id, query=query, top_k=top_k)
+        # Phase 2: real semantic (embedding) retrieval is primary; the
+        # original keyword/TF-cosine engine (rag.py, untouched) is the
+        # explicit fallback - used whenever semantic retrieval genuinely
+        # cannot run (no scikit-learn, or this patient has no indexed
+        # chunks yet), never silently swapped in without saying so.
+        results = retrieve_patient_context_semantic(patient_id=patient.id, query=query, top_k=top_k)
+        retrieval_method = "semantic_embedding_lsa"
+        if results is None:
+            rag_engine = get_patient_rag_engine()
+            results = rag_engine.retrieve_patient_context(patient_id=patient.id, query=query, top_k=top_k)
+            retrieval_method = "keyword_tf_cosine_fallback"
+            for r in results:
+                r.setdefault("retrieval_method", retrieval_method)
+
         return Response({
             "patient_id": patient.id,
             "query": query,
+            "retrieval_method": retrieval_method,
             "results": results,
             "count": len(results)
         }, status=status.HTTP_200_OK)

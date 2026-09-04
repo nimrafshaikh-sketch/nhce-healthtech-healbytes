@@ -1,11 +1,14 @@
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import generics, permissions
+from rest_framework import generics, permissions, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.permissions import IsDoctor, IsDoctorOfPatient, IsPatient
 from apps.patients.models import Patient
+from apps.qr.models import QRAccessGrant
 
+from .intelligence import analyze_patient_medications
 from .models import Medication, MedicationReminderLog, Prescription
 from .serializers import MedicationReminderLogSerializer, MedicationSerializer, PrescriptionSerializer
 
@@ -141,3 +144,38 @@ class PrescriptionDetailView(generics.RetrieveUpdateDestroyAPIView):
             Q(patient__doctor=user) | Q(patient_id__in=grant_patient_ids)
         )
 
+@extend_schema(tags=["Medications"], summary="Medication Intelligence: deterministic reconciliation of current/historical/document-derived medication data (read-only)")
+class MedicationIntelligenceView(APIView):
+    """Phase 3 - reconciles the authoritative Medication table against
+    document-derived candidate prescriptions and surfaces structured
+    observations (duplicates, conflicting dosage, regimen changes,
+    document-vs-record discrepancies, incomplete extractions).
+
+    Deterministic, no LLM. Read-only: never creates, updates, or deletes a
+    Medication record - see apps.medications.intelligence module docstring.
+
+    Authorization mirrors DocumentRAGSearchView: the assigned doctor, a
+    doctor with an active QRAccessGrant for this patient, or the patient
+    themselves. Everyone else is denied.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        patient_id = request.query_params.get("patient_id") or request.query_params.get("patient")
+        if not patient_id:
+            return Response({"detail": "patient_id query parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        patient = generics.get_object_or_404(Patient, pk=patient_id)
+        user = request.user
+
+        if getattr(user, "is_doctor", False):
+            if patient.doctor_id != user.id:
+                if not QRAccessGrant.has_active_grant(patient=patient, doctor=user):
+                    raise PermissionDenied("You are not authorized to view this patient's medication intelligence.")
+        elif getattr(user, "is_patient", False):
+            if not hasattr(user, "patient_profile") or user.patient_profile.id != patient.id:
+                raise PermissionDenied("You cannot access another patient's medication intelligence.")
+        else:
+            raise PermissionDenied("Non-clinical staff cannot access medication intelligence.")
+
+        return Response(analyze_patient_medications(patient.id), status=status.HTTP_200_OK)

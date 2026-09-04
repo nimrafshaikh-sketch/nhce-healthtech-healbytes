@@ -171,3 +171,27 @@ class MyAISummaryView(APIView):
             result["history"] = ai_engine_summary["history"]
             result["request_id"] = ai_engine_summary.get("request_id")
         return Response(result)
+
+
+from apps.patients.timeline import build_patient_timeline
+
+
+@extend_schema(tags=["Analytics"], summary="Doctor: unified chronological Patient Timeline for an assigned patient")
+class PatientTimelineView(APIView):
+    """Phase 4 - deterministic aggregation of real events (appointments,
+    prescriptions, labs, check-ins, AI evaluations, documents) into one
+    chronological view. See apps.patients.timeline module docstring."""
+    permission_classes = [permissions.IsAuthenticated, IsDoctor]
+
+    def get(self, request, patient_id):
+        patient = get_object_or_404(Patient, id=patient_id, doctor=request.user)
+        return Response(build_patient_timeline(patient))
+
+
+@extend_schema(tags=["Analytics"], summary="Patient: unified chronological timeline for self")
+class MyTimelineView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsPatient]
+
+    def get(self, request):
+        patient = get_object_or_404(Patient, user=request.user)
+        return Response(build_patient_timeline(patient))
