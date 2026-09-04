@@ -16,7 +16,7 @@ class AlertListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated, IsDoctor]
 
     def get_queryset(self):
-        qs = Alert.objects.filter(patient__doctor=self.request.user.doctor_profile).select_related("patient")
+        qs = Alert.objects.filter(patient__doctor=self.request.user).select_related("patient")
         status_param = self.request.query_params.get("status")
         if status_param:
             qs = qs.filter(status=status_param)
@@ -28,7 +28,7 @@ class AlertAcknowledgeView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsDoctor]
 
     def post(self, request, pk):
-        alert = generics.get_object_or_404(Alert, pk=pk, patient__doctor=request.user.doctor_profile)
+        alert = generics.get_object_or_404(Alert, pk=pk, patient__doctor=request.user)
         alert.status = Alert.Status.ACKNOWLEDGED
         alert.acknowledged_by = request.user
         alert.acknowledged_at = timezone.now()
@@ -41,7 +41,7 @@ class AlertResolveView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsDoctor]
 
     def post(self, request, pk):
-        alert = generics.get_object_or_404(Alert, pk=pk, patient__doctor=request.user.doctor_profile)
+        alert = generics.get_object_or_404(Alert, pk=pk, patient__doctor=request.user)
         alert.status = Alert.Status.RESOLVED
         alert.save(update_fields=["status"])
         return Response(AlertSerializer(alert).data)

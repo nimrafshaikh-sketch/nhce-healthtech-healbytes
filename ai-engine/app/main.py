@@ -1,8 +1,7 @@
 """FastAPI application entry point for the HealBytes AI Engine.
 
-Routes are mounted at the application root (no version prefix): the agreed
-backend contract calls `POST {AI_ENGINE_URL}/analyze/` directly — see
-`app/api/routes.py`.
+This service is Phase 0: it exposes and validates the AI request/response
+contract only. No risk-scoring, ML, or backend logic lives here.
 """
 
 from fastapi import FastAPI
@@ -19,12 +18,11 @@ app = FastAPI(
     title=settings.app_name,
     version=settings.model_version,
     description=(
-        "AI Engine for patient check-in risk analysis. Deterministic, "
-        "rule-based baseline — see README.md for the full pipeline and "
-        "the agreed request/response contract."
+        "AI Engine contract foundation for patient check-in analysis. "
+        "Phase 0: request/response contract and validation only."
     ),
 )
 
 register_exception_handlers(app)
-app.include_router(router)
-app.include_router(history_router)
+app.include_router(router, prefix=settings.api_prefix)
+app.include_router(history_router, prefix=settings.api_prefix)

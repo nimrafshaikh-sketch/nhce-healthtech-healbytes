@@ -15,9 +15,9 @@ class CaretakerEmailTests(TestCase):
 
     def _make_checkin(self, risk_level, caretaker_email="care@example.com"):
         patient = Patient.objects.create(
-            doctor=self.doctor.doctor_profile, name="Ivy", user=self.patient_user,
+            doctor=self.doctor, full_name="Ivy", user=self.patient_user,
             caretaker_name="Carl", caretaker_email=caretaker_email,
-        , date_of_birth="1990-01-01")
+        )
         return DailyCheckin.objects.create(
             patient=patient, checkin_date="2026-01-01", ai_risk_level=risk_level,
         )

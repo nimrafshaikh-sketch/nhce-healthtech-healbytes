@@ -1,14 +1,5 @@
 """Phase 5 controlled AI explanation layer.
 
-ORPHANED from the live wire response as of Phase 6: the agreed backend
-contract (`backend/apps/checkins/ai_client.py`, `feature/backend` branch)
-has no `explanation` field, so `response_builder.py` no longer calls this
-module. It is kept working and tested — decoupled from the removed
-`AlertRecipient` type (now `NotificationRecipient`, see
-`app/schemas/common.py`) — in case a future revision wants `reason` or
-`recommendedAction` to be LLM-narrated (never the numeric score; see the
-architectural principles below, which still apply if this is reattached).
-
 This module provides human-readable, care-team-friendly explanations of the
 already-computed deterministic risk assessment. It is explicitly a downstream
 presentation and explainability enhancement for hackathon demo and clinical
@@ -16,10 +7,10 @@ coordination purposes — NOT a clinical diagnostic tool, NOT a treatment
 planner, and NOT a secondary risk engine.
 
 Architectural principles enforced here:
-    1. The deterministic engine is the absolute source of truth.
+    1. The deterministic engine (Phases 1-4) is the absolute source of truth.
     2. This module is strictly observational/downstream: it NEVER calculates,
-       modifies, or feeds back into `risk_score`, `risk_level`, or
-       `notification_recipient`.
+       modifies, or feeds back into `risk_score`, `risk_level`, `alert_recipient`,
+       or `follow_up_action`.
     3. A deterministic fallback explanation is ALWAYS available and is the
        default operational path when no LLM provider is configured, or if a
        provider fails, times out, or produces unsafe output.
@@ -36,7 +27,7 @@ import re
 from typing import List, Optional, Protocol
 
 from app.analysis.risk_engine import RiskAssessment
-from app.schemas.common import NotificationRecipient, RiskLevel
+from app.schemas.common import AlertRecipient, RiskLevel
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +72,7 @@ class ExplanationProvider(Protocol):
         risk_level: RiskLevel,
         risk_score: float,
         reason: str,
-        notification_recipient: NotificationRecipient,
+        alert_recipient: AlertRecipient,
         follow_up_action: Optional[str] = None,
     ) -> str:
         ...
@@ -95,13 +86,12 @@ def generate_fallback_explanation(
     """Generate a pure, deterministic, safe fallback explanation based strictly
     on the supplied risk assessment and care-coordination action.
 
-    `risk_score` here is expected on the internal 0-100 scale (not the
-    0.0-1.0 wire scale), matching `RiskAssessment.risk_score`.
+    Matches the required contract structure:
+    "The assessment indicates {risk_level.value} risk (score: {score:.1f}/100) based on the deterministic evaluation of reported symptoms, duration, and context. {follow_up_action}"
     """
     base = (
-        f"The assessment indicates {risk_level.value.capitalize()} risk "
-        f"(score: {risk_score:.1f}/100) based on the deterministic evaluation "
-        "of reported pain level and symptoms."
+        f"The assessment indicates {risk_level.value} risk (score: {risk_score:.1f}/100) "
+        "based on the deterministic evaluation of reported symptoms, duration, and context."
     )
     if follow_up_action and follow_up_action.strip():
         return f"{base} {follow_up_action.strip()}"
@@ -176,7 +166,7 @@ class ExplanationService:
                 risk_level=assessment.risk_level,
                 risk_score=float(assessment.risk_score),
                 reason=assessment.reason,
-                notification_recipient=assessment.notification_recipient,
+                alert_recipient=assessment.alert_recipient,
                 follow_up_action=follow_up_action,
             )
             if validate_explanation(candidate, assessment.risk_level):

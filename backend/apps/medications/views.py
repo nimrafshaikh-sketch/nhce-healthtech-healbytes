@@ -6,8 +6,8 @@ from rest_framework.views import APIView
 from apps.core.permissions import IsDoctor, IsDoctorOfPatient, IsPatient
 from apps.patients.models import Patient
 
-from .models import Medication, MedicationAdherence
-from .serializers import MedicationAdherenceSerializer, MedicationSerializer
+from .models import Medication, MedicationReminderLog
+from .serializers import MedicationReminderLogSerializer, MedicationSerializer
 
 
 @extend_schema_view(
@@ -33,7 +33,7 @@ class MedicationListCreateView(generics.ListCreateAPIView):
         if not self.request.user.is_doctor:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("Only doctors can prescribe medications.")
-        patient = Patient.objects.get(id=self.request.data.get("patient"), doctor=self.request.user.doctor_profile)
+        patient = Patient.objects.get(id=self.request.data.get("patient"), doctor=self.request.user)
         serializer.save(prescribed_by=self.request.user, patient=patient)
 
 
@@ -44,31 +44,28 @@ class MedicationDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Medication.objects.all()
 
 
-@extend_schema(tags=["Medications"], summary="List adherence logs for a medication")
-class MedicationAdherenceListView(generics.ListAPIView):
-    serializer_class = MedicationAdherenceSerializer
+@extend_schema(tags=["Medications"], summary="List reminder-dispatch history for a medication")
+class MedicationReminderLogListView(generics.ListAPIView):
+    serializer_class = MedicationReminderLogSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
-        base = MedicationAdherence.objects.filter(medication_id=self.kwargs["medication_id"])
+        base = MedicationReminderLog.objects.filter(medication_id=self.kwargs["medication_id"])
         if user.is_doctor:
             return base.filter(medication__patient__doctor=user)
         return base.filter(medication__patient__user=user)
 
 
-@extend_schema(tags=["Medications"], summary="Patient marks a medication as taken/missed", request=None, responses=MedicationAdherenceSerializer)
-class UpdateAdherenceView(APIView):
+@extend_schema(tags=["Medications"], summary="Patient acknowledges a dispatched reminder", request=None, responses=MedicationReminderLogSerializer)
+class AcknowledgeReminderView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsPatient]
 
     def post(self, request, pk):
         from django.utils import timezone
-        status = request.data.get("status", "TAKEN")
         log = generics.get_object_or_404(
-            MedicationAdherence, pk=pk, medication__patient__user=request.user
+            MedicationReminderLog, pk=pk, medication__patient__user=request.user
         )
-        log.status = status
-        if status == "TAKEN":
-            log.taken_at = timezone.now()
-        log.save(update_fields=["status", "taken_at"])
-        return Response(MedicationAdherenceSerializer(log).data)
+        log.acknowledged_at = timezone.now()
+        log.save(update_fields=["acknowledged_at"])
+        return Response(MedicationReminderLogSerializer(log).data)

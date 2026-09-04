@@ -12,3 +12,6 @@ venv
 env
 db.sqlite3
 staticfiles
+protected_documents
+media
+*.sqlite3

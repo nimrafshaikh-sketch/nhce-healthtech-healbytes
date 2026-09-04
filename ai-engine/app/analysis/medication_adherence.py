@@ -50,46 +50,15 @@ interactions, predicting hospitalization or disease progression from
 adherence, or recommending/changing/starting/stopping a medication or
 dosage. This module only answers: does the supplied adherence data show
 evidence of a concern, and if so, how much should that nudge the score?
-
-ORPHANED as of Phase 6: the agreed backend wire contract
-(`backend/apps/checkins/ai_client.py`, `feature/backend` branch) does not
-send medication-adherence data, so nothing in the live `/analyze/` pipeline
-currently calls `assess_medication_adherence`. This module is kept, working
-and tested, in case a future contract revision reintroduces a
-`medical_context`-style field — see `README.md`'s Phase 6 section.
-`MedicationAdherenceStatus`/`MedicationAdherenceRecord` are now defined
-locally below (decoupled from `app/schemas/request.py`, which no longer has
-them) purely so this module keeps working standalone.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
-from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List
 
-# --- Local, decoupled types (see module docstring) -----------------------
-
-
-class MedicationAdherenceStatus(str, Enum):
-    """Adherence classification for a single medication. Not part of the
-    live Phase 6 request contract; kept here only for this orphaned module."""
-
-    ADHERENT = "adherent"
-    PARTIALLY_ADHERENT = "partially_adherent"
-    NON_ADHERENT = "non_adherent"
-    UNKNOWN = "unknown"
-
-
-@dataclass(frozen=True)
-class MedicationAdherenceRecord:
-    """Adherence status for a single prescribed medication. Not part of the
-    live Phase 6 request contract; kept here only for this orphaned module."""
-
-    medication_name: str
-    adherence_status: MedicationAdherenceStatus = MedicationAdherenceStatus.UNKNOWN
-    last_taken: Optional[date] = None
+from app.schemas.common import MedicationAdherenceStatus
+from app.schemas.request import MedicationAdherenceRecord
 
 MEDICATION_ADJUSTMENT_MAX = 5
 """Hard upper bound on the total medication-adherence score contribution,

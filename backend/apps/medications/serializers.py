@@ -17,6 +17,7 @@ class MedicationSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "prescribed_by", "created_at", "updated_at"]
 
+
     def validate_reminder_times(self, value):
         import re
         pattern = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
@@ -38,4 +39,3 @@ class MedicationReminderLogSerializer(serializers.ModelSerializer):
         model = MedicationReminderLog
         fields = ["id", "medication", "scheduled_for", "sent_at", "acknowledged_at"]
         read_only_fields = fields
-
