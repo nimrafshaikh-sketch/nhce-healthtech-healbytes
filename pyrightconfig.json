@@ -1,15 +1,14 @@
 {
-  "venvPath": ".",
+  "venvPath": "backend",
+  "venv": "venv",
   "executionEnvironments": [
     {
       "root": "ai-engine",
-      "extraPaths": ["."],
-      "venv": "ai-engine/.venv"
+      "extraPaths": ["ai-engine"]
     },
     {
       "root": "backend",
-      "venv": "backend/venv"
+      "extraPaths": ["backend"]
     }
   ]
 }
-
