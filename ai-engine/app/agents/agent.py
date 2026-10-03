@@ -144,7 +144,9 @@ class Agent:
         reply instead."""
 
         try:
+            logger.info("Agent Tool Selected: %s with arguments: %s", name, arguments)
             result = self._tool_registry.execute(name, arguments, context)
+            logger.info("Agent Tool Result [%s]: %s", name, str(result)[:500])
             outcomes.append(
                 ToolCallOutcome(name, arguments, True, f"'{name}' completed successfully.")
             )

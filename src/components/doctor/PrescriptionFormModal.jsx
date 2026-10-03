@@ -56,7 +56,15 @@ export default function PrescriptionFormModal({ open, onClose, onSuccess, patien
 
     try {
       const res = await uploadDocument(formData);
-      setSuccessMsg("Prescription processed! Medications auto-extracted and added to patient dashboard.");
+      const findings = res?.extracted_data?.clinical_findings || [];
+      const hasMeds = findings.some(f => f.entity_type === "CANDIDATE_PRESCRIPTION");
+      
+      if (hasMeds) {
+        setSuccessMsg("Medications extracted! Awaiting your clinical verification.");
+      } else {
+        setSuccessMsg("Document uploaded. Unable to reliably extract medications. Please enter them manually.");
+      }
+
       setTimeout(() => {
         setSuccessMsg(null);
         setFile(null);
@@ -64,7 +72,7 @@ export default function PrescriptionFormModal({ open, onClose, onSuccess, patien
         setTitle("");
         if (onSuccess) onSuccess(res);
         if (onClose) onClose();
-      }, 1200);
+      }, 1500);
     } catch (err) {
       setError(err.message || "Failed to upload and process prescription document.");
     } finally {

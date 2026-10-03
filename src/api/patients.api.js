@@ -131,4 +131,12 @@ export async function getMyPatientProfile() {
   return normalizePatient(data);
 }
 
+export async function getPatientHistory(id) {
+  if (USE_MOCK) {
+    await mockDelay(200);
+    return { visits: [], conditions: [] };
+  }
+  return await apiFetch(ENDPOINTS.PATIENT_HISTORY(id));
+}
+
 export { normalizePatient };

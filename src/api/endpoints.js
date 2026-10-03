@@ -5,6 +5,7 @@ export const ENDPOINTS = {
   PATIENTS: "/patients/",
   PATIENT_BY_ID: (id) => `/patients/${id}/`,
   PATIENT_ME: "/patients/me/",
+  PATIENT_HISTORY: (id) => `/patients/${id}/history/`,
   INVITATIONS: "/invitations/generate/",
   INVITATIONS_VERIFY: "/invitations/redeem/",
   CHECKINS: "/checkins/",

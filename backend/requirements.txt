@@ -22,5 +22,7 @@ django-stubs-ext>=5.0
 # (apps.documents.embeddings): TF-IDF + Truncated SVD (LSA), offline and
 # deterministic - no LLM/embedding API, per this project's current rules.
 scikit-learn>=1.5,<2.0
-numpy>=1.26,<3.0
+numpy
+pgvector>=0.2.5
+sentence-transformers>=2.6.0
 

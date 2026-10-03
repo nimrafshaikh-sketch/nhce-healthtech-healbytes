@@ -1,7 +1,7 @@
 services:
   # PostgreSQL Database Service
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: healbytes_db
     restart: unless-stopped
     environment:
@@ -146,6 +146,19 @@ services:
         condition: service_healthy
 
   # Mailpit - Local SMTP testing
+  ai_engine:
+    build:
+      context: ./ai-engine
+      dockerfile: Dockerfile
+    container_name: healbytes_ai_engine
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./ai-engine:/app
+    env_file:
+      - ./ai-engine/.env
+
   mailpit:
     image: axllent/mailpit
     container_name: healbytes_mailpit

@@ -2,6 +2,7 @@ import os
 import uuid
 from django.conf import settings
 from django.db import models
+from pgvector.django import VectorField
 
 from apps.core.models import TimeStampedModel
 
@@ -140,6 +141,7 @@ class DocumentChunk(TimeStampedModel):
     document_type = models.CharField(max_length=30, help_text="Denormalized from document.document_type at index time.")
     document_title = models.CharField(max_length=255, help_text="Denormalized from document.title at index time.")
     document_date = models.DateTimeField(help_text="Denormalized from document.created_at (or an extracted document date, when confidently parsed) at index time.")
+    embedding = VectorField(dimensions=384, null=True, blank=True, help_text="all-MiniLM-L6-v2 neural embedding vector")
 
     class Meta:
         ordering = ["document_id", "chunk_index"]

@@ -344,31 +344,8 @@ def extract_document_entities(raw_text: str, document_type: str) -> Dict[str, An
                 })
 
         # Strategy C: Guaranteed Fallback for PRESCRIPTION documents if OCR was completely blank/scribble
-        if document_type == "PRESCRIPTION" and not findings:
-            findings.append({
-                "entity_type": "CANDIDATE_PRESCRIPTION",
-                "drug_name": "Amoxicillin",
-                "dosage": "500mg",
-                "frequency": "twice_daily",
-                "duration": f"{general_duration_days} days",
-                "duration_days": general_duration_days,
-                "instructions": "Take with water after food",
-                "date": doc_date,
-                "confidence": 0.90,
-                "is_verified": False,
-            })
-            findings.append({
-                "entity_type": "CANDIDATE_PRESCRIPTION",
-                "drug_name": "Paracetamol",
-                "dosage": "650mg",
-                "frequency": "twice_daily",
-                "duration": f"{general_duration_days} days",
-                "duration_days": general_duration_days,
-                "instructions": "Take as needed for pain/fever",
-                "date": doc_date,
-                "confidence": 0.90,
-                "is_verified": False,
-            })
+        # REMOVED: Do not invent medications. Wait for doctor to verify or manually enter.
+
 
     return {
         "extracted_date": doc_date,
