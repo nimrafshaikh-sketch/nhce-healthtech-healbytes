@@ -31,7 +31,7 @@ import PrescriptionVerificationModal from "../../components/healthcare/Prescript
 import PrescriptionFormModal from "../../components/doctor/PrescriptionFormModal";
 import { useData } from "../../context/DataContext";
 import { getPatientAISummary } from "../../api/analytics.api";
-import { getPatientDetail } from "../../api/patients.api";
+import { getPatientDetail, getPatientHistory } from "../../api/patients.api";
 import { orderLabTest, getLabResultsForPatient, reviewLabResult } from "../../api/lab.api";
 import { getDocuments, getDocumentViewUrl } from "../../api/documents.api";
 import { getMedications, updateMedication } from "../../api/medication.api";
@@ -41,7 +41,7 @@ import { createAppointment } from "../../api/appointment.api";
 import { useAuth } from "../../context/AuthContext";
 import DoctorAgentChat from "../../components/doctor/DoctorAgentChat";
 
-const TABS = ["Overview", "AI Copilot", "Documents", "Check-ins", "Medications", "Prescriptions", "Labs", "History", "Analytics"];
+const TABS = ["Overview", "History", "AI Copilot", "Documents", "Check-ins", "Medications", "Prescriptions", "Labs"];
 
 export default function PatientProfile() {
   const { id } = useParams();
@@ -86,6 +86,8 @@ export default function PatientProfile() {
   const [docsLoading, setDocsLoading] = useState(false);
   const [prescriptions, setPrescriptions] = useState([]);
   const [labs, setLabs] = useState([]);
+  const [historyData, setHistoryData] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   useEffect(() => {
     if (!id || id === "undefined") {
@@ -117,6 +119,16 @@ export default function PatientProfile() {
         .then((data) => setAiSummary(data))
         .catch(console.error)
         .finally(() => setSummaryLoading(false));
+    }
+  }, [effectiveId]);
+
+  const fetchHistory = useCallback(() => {
+    if (effectiveId && effectiveId !== "undefined") {
+      setHistoryLoading(true);
+      getPatientHistory(effectiveId)
+        .then((data) => setHistoryData(data))
+        .catch((err) => console.error("Error fetching patient history:", err))
+        .finally(() => setHistoryLoading(false));
     }
   }, [effectiveId]);
 
@@ -164,11 +176,12 @@ export default function PatientProfile() {
   useEffect(() => {
     if (effectiveId) {
       fetchSummary();
+      fetchHistory();
       fetchDocList();
       fetchPrescriptionsAndLabs();
       fetchMedications();
     }
-  }, [effectiveId, fetchSummary, fetchDocList, fetchPrescriptionsAndLabs, fetchMedications]);
+  }, [effectiveId, fetchSummary, fetchHistory, fetchDocList, fetchPrescriptionsAndLabs, fetchMedications]);
 
   if (patientLoading || (!patient && !fetchAttempted)) {
     return (
@@ -393,6 +406,73 @@ export default function PatientProfile() {
                   </div>
                 </dl>
               </div>
+            </div>
+          )}
+
+          {tab === "History" && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-semibold text-ink-900">Longitudinal Clinical History</h2>
+                  <p className="text-xs text-ink-500">
+                    Chronological timeline of past visits, diagnosing doctors, and documented conditions.
+                  </p>
+                </div>
+              </div>
+
+              {historyLoading ? (
+                <div className="flex justify-center p-12">
+                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" />
+                </div>
+              ) : historyData && (historyData.visits?.length || historyData.conditions?.length) ? (
+                <div className="space-y-8">
+                  {historyData.conditions?.length > 0 && (
+                    <div className="rounded-2xl border border-ink-300/15 bg-white p-6 shadow-card">
+                      <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-ink-500">Documented Conditions</h3>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        {historyData.conditions.map((cond) => (
+                          <div key={cond.id} className="rounded-xl border border-ink-100 bg-canvas-soft p-4">
+                            <div className="flex justify-between items-start mb-2">
+                              <h4 className="font-semibold text-ink-900">{cond.diagnosis || "Undiagnosed condition"}</h4>
+                              <span className="text-xs text-ink-500">{new Date(cond.recorded_at).toLocaleDateString()}</span>
+                            </div>
+                            <p className="text-sm text-ink-700 mb-2">{cond.notes || cond.treatment}</p>
+                            <p className="text-xs text-ink-500 mt-2">Recorded by: {cond.recorded_by_name || "Unknown Doctor"}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {historyData.visits?.length > 0 && (
+                    <div className="rounded-2xl border border-ink-300/15 bg-white p-6 shadow-card relative before:absolute before:inset-0 before:ml-[2.25rem] before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-ink-200 before:to-transparent">
+                      <h3 className="mb-6 text-sm font-semibold uppercase tracking-wide text-ink-500 relative z-10 bg-white inline-block pr-4">Visit Timeline</h3>
+                      <div className="space-y-6">
+                        {historyData.visits.map((visit) => (
+                          <div key={visit.id} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                            <div className="flex items-center justify-center w-8 h-8 rounded-full border-2 border-white bg-brand-500 text-white shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 shadow absolute left-2 md:left-1/2 -translate-x-1/2 z-10">
+                              <span className="text-xs font-semibold">{new Date(visit.scheduled_at).getDate()}</span>
+                            </div>
+                            <div className="w-[calc(100%-3rem)] md:w-[calc(50%-2rem)] ml-auto md:ml-0 p-4 rounded-xl border border-ink-200 bg-white shadow-sm transition hover:shadow-md">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-xs font-bold text-brand-600">{new Date(visit.scheduled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                                <Badge variant={visit.status === 'completed' ? 'success' : 'neutral'} size="sm">{visit.status}</Badge>
+                              </div>
+                              <h4 className="font-semibold text-ink-900 mb-1">{visit.reason || "General Visit"}</h4>
+                              <p className="text-sm text-ink-600 mb-3">{visit.notes}</p>
+                              <div className="text-xs font-medium text-ink-500 bg-canvas-soft px-2 py-1 rounded inline-block">
+                                Doctor: Dr. {visit.doctor_name || "Unknown"}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <EmptyState title="No history found" description="No visits or conditions have been recorded yet." />
+              )}
             </div>
           )}
 
@@ -717,40 +797,6 @@ export default function PatientProfile() {
             </div>
           )}
 
-          {tab === "History" && (
-            <div className="space-y-6">
-              <AIHistorySummaryCard summary={aiSummary} loading={summaryLoading} />
-              <div className="space-y-1">
-                {checkins.length ? (
-                  checkins.map((c, i) => (
-                    <div key={c.id} className="flex gap-3">
-                      <div className="flex flex-col items-center">
-                        <span className="mt-1.5 h-2 w-2 rounded-full bg-brand-500" />
-                        {i !== checkins.length - 1 && <span className="mt-1 w-px flex-1 bg-ink-300/20" />}
-                      </div>
-                      <div className="pb-4">
-                        <p className="text-xs text-ink-300">
-                          {formatDayLabel(c.date)} · {formatTime(c.date)}
-                        </p>
-                        <p className="text-sm font-medium text-ink-900">Daily Check-in</p>
-                        <div className="mt-1">
-                          <RiskBadge level={c.riskLevel} size="sm" />
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <EmptyState title="No history yet" description="Patient activity will build a timeline here." />
-                )}
-              </div>
-            </div>
-          )}
-
-          {tab === "Analytics" && (
-            <div className="space-y-6">
-              <AIHistorySummaryCard summary={aiSummary} loading={summaryLoading} />
-            </div>
-          )}
         </div>
       </main>
 
@@ -787,16 +833,29 @@ export default function PatientProfile() {
           fetchMedications();
           fetchSummary();
         }}
-        onSuccess={() => {
+        onSuccess={(doc) => {
           setPrescModalOpen(false);
           fetchPrescriptionsAndLabs();
           fetchMedications();
           fetchSummary();
           fetchDocList();
           if (refreshData) refreshData();
+          
+          if (doc && (doc.status === "REVIEW_REQUIRED" || doc.document_type === "PRESCRIPTION")) {
+            setVerifyPrescriptionDoc(doc);
+          }
         }}
         patientId={patient.id}
       />
+
+      {verifyPrescriptionDoc && (
+        <PrescriptionVerificationModal
+          open={!!verifyPrescriptionDoc}
+          onClose={() => setVerifyPrescriptionDoc(null)}
+          document={verifyPrescriptionDoc}
+          onVerified={handlePrescriptionVerified}
+        />
+      )}
 
       <DocumentUploadModal
         open={docUploadOpen}

@@ -301,3 +301,90 @@ search_patient_records = Tool(
     },
     handler=_search_patient_records,
 )
+
+
+# ---------------------------------------------------------------------------
+# get_recent_checkins
+# ---------------------------------------------------------------------------
+
+def _get_recent_checkins(arguments: dict[str, Any], context: ToolContext) -> dict[str, Any]:
+    patient_id = arguments["patient_id"]
+    client = BackendClient()
+    data = client.get(
+        "/api/checkins/",
+        bearer_token=context.bearer_token,
+        params={"patient": patient_id, "ordering": "-checkin_date"},
+    )
+    results = data.get("results", data) if isinstance(data, dict) else data
+    checkins = results or []
+    if not checkins:
+        return {"patient_id": patient_id, "available": False, "message": "No recent check-ins found."}
+    return {"patient_id": patient_id, "available": True, "checkins": checkins[:5]}
+
+get_recent_checkins = Tool(
+    name="get_recent_checkins",
+    description="Get the recent daily check-ins (pain levels, symptoms) for a patient. Use this to understand why a patient's condition might have changed recently.",
+    parameters_json_schema={
+        "type": "object",
+        "properties": dict(_PATIENT_ID_PROPERTY),
+        "required": ["patient_id"],
+    },
+    handler=_get_recent_checkins,
+)
+
+# ---------------------------------------------------------------------------
+# get_lab_results
+# ---------------------------------------------------------------------------
+
+def _get_lab_results(arguments: dict[str, Any], context: ToolContext) -> dict[str, Any]:
+    patient_id = arguments["patient_id"]
+    client = BackendClient()
+    data = client.get(
+        "/api/labtests/",
+        bearer_token=context.bearer_token,
+        params={"patient": patient_id},
+    )
+    results = data.get("results", data) if isinstance(data, dict) else data
+    if not results:
+        return {"patient_id": patient_id, "available": False, "message": "No structured lab results found."}
+    return {"patient_id": patient_id, "available": True, "lab_results": results[:5]}
+
+get_lab_results = Tool(
+    name="get_lab_results",
+    description="Get recent structured lab results (biomarkers, test values) for a patient. Prefer this over RAG for exact numbers and dates.",
+    parameters_json_schema={
+        "type": "object",
+        "properties": dict(_PATIENT_ID_PROPERTY),
+        "required": ["patient_id"],
+    },
+    handler=_get_lab_results,
+)
+
+# ---------------------------------------------------------------------------
+# get_prescriptions
+# ---------------------------------------------------------------------------
+
+def _get_prescriptions(arguments: dict[str, Any], context: ToolContext) -> dict[str, Any]:
+    patient_id = arguments["patient_id"]
+    client = BackendClient()
+    data = client.get(
+        "/api/documents/",
+        bearer_token=context.bearer_token,
+        params={"patient": patient_id, "document_type": "PRESCRIPTION"},
+    )
+    results = data.get("results", data) if isinstance(data, dict) else data
+    if not results:
+        return {"patient_id": patient_id, "available": False, "message": "No prescription documents found."}
+    return {"patient_id": patient_id, "available": True, "prescriptions": results[:5]}
+
+get_prescriptions = Tool(
+    name="get_prescriptions",
+    description="Get recent uploaded prescription documents for a patient.",
+    parameters_json_schema={
+        "type": "object",
+        "properties": dict(_PATIENT_ID_PROPERTY),
+        "required": ["patient_id"],
+    },
+    handler=_get_prescriptions,
+)
+

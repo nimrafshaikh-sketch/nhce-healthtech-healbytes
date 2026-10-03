@@ -167,7 +167,18 @@ export default function PatientHome() {
         </p>
       </div>
 
-      {!checkedInToday && (
+      {(!checkedInToday && !patient.lastCheckIn && scheduledDoses.length === 0) ? (
+        <div className="mt-5 rounded-2xl border border-brand-200 bg-brand-50 p-5 shadow-sm text-center space-y-2">
+          <h3 className="text-base font-bold text-brand-900">Welcome to HealBytes</h3>
+          <p className="text-sm text-brand-700">Complete your first daily check-in to keep your care team updated.</p>
+          <button
+            onClick={() => navigate("/patient/check-in")}
+            className="mt-3 block w-full rounded-xl bg-brand-600 py-3 text-center text-sm font-bold text-white shadow hover:bg-brand-700 transition"
+          >
+            Start Check-in
+          </button>
+        </div>
+      ) : !checkedInToday ? (
         <button
           onClick={() => navigate("/patient/check-in")}
           className="mt-5 block w-full rounded-2xl bg-brand-700 p-5 text-left text-white shadow-raised transition hover:bg-brand-800"
@@ -178,7 +189,7 @@ export default function PatientHome() {
             Start Daily Check-in <ArrowRight size={15} />
           </span>
         </button>
-      )}
+      ) : null}
 
       <div className="mt-7">
         <div className="flex items-center justify-between mb-3">
@@ -207,6 +218,12 @@ export default function PatientHome() {
               <Circle size={14} className="text-ink-300" />
             )}
           </div>
+
+          {scheduledDoses.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-ink-200 bg-ink-50/50 p-6 text-center">
+              <p className="text-sm font-medium text-ink-600">You have no active prescriptions.</p>
+            </div>
+          )}
 
           {scheduledDoses.map((dose) => {
             const Icon = TIME_ICON[dose.slotType] || Sun;

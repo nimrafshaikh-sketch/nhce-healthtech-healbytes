@@ -1,6 +1,6 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { LogOut } from "lucide-react";
+import { LogOut, QrCode } from "lucide-react";
 import Avatar from "../../components/ui/Avatar";
 import Button from "../../components/ui/Button";
 import { useAuth } from "../../context/AuthContext";
@@ -38,7 +38,11 @@ export default function PatientProfilePage() {
         <p className="text-sm text-ink-500">{patient.caretaker?.phone}</p>
       </div>
 
-      <Button variant="secondary" fullWidth className="mt-6" leftIcon={<LogOut size={15} />} onClick={handleLogout}>
+      <Button variant="primary" fullWidth className="mt-6 mb-3" leftIcon={<QrCode size={16} />} onClick={() => navigate("/patient/qr")}>
+        Show My QR Code
+      </Button>
+
+      <Button variant="secondary" fullWidth leftIcon={<LogOut size={15} />} onClick={handleLogout}>
         Sign Out
       </Button>
     </div>

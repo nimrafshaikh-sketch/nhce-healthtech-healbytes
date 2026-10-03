@@ -14,6 +14,9 @@ from app.agents.tools.doctor_tools import (
     get_patient_medications,
     get_patient_risk,
     search_patient_records,
+    get_recent_checkins,
+    get_lab_results,
+    get_prescriptions,
 )
 from app.agents.tools.patient_tools import get_patient_basic_info
 
@@ -26,4 +29,7 @@ def build_doctor_registry() -> ToolRegistry:
     registry.register(get_patient_risk)
     registry.register(get_patient_history)
     registry.register(search_patient_records)
+    registry.register(get_recent_checkins)
+    registry.register(get_lab_results)
+    registry.register(get_prescriptions)
     return registry

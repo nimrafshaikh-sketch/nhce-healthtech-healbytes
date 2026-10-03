@@ -14,6 +14,21 @@ from .serializers import (
     ReceptionistPatientCreateSerializer,
 )
 
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from apps.appointments.models import Appointment
+from apps.appointments.serializers import AppointmentSerializer
+from apps.medical_history.models import MedicalHistory
+from apps.qr.models import QRAccessGrant
+from rest_framework import serializers
+
+class MedicalHistorySerializer(serializers.ModelSerializer):
+    recorded_by_name = serializers.CharField(source="recorded_by.get_full_name", read_only=True)
+    class Meta:
+        model = MedicalHistory
+        fields = ["id", "diagnosis", "treatment", "notes", "recorded_by", "recorded_by_name", "recorded_at", "symptoms", "allergies", "previous_relevant_records"]
+
+
 
 @extend_schema_view(
     get=extend_schema(
@@ -111,3 +126,28 @@ class PatientSearchView(generics.ListAPIView):
         raise ValidationError(
             "Provide either 'phone_number', or both 'name' and 'date_of_birth' to search."
         )
+
+
+@extend_schema(tags=["Patients"], summary="Get patient's full clinical history (visits, conditions)")
+class PatientHistoryView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsDoctor]
+
+    def get(self, request, pk):
+        patient = get_object_or_404(Patient, pk=pk)
+        user = request.user
+        
+        is_primary = patient.doctor_id == user.id
+        has_qr_access = QRAccessGrant.has_active_grant(patient=patient, doctor=user)
+        
+        if not (is_primary or has_qr_access):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You are not authorized to view this patient's history.")
+
+        appointments = Appointment.objects.filter(patient=patient, status__in=[Appointment.Status.COMPLETED, Appointment.Status.CONFIRMED, Appointment.Status.SCHEDULED]).order_by("-scheduled_at")
+        history = MedicalHistory.objects.filter(patient=patient).order_by("-recorded_at")
+
+        return Response({
+            "visits": AppointmentSerializer(appointments, many=True).data,
+            "conditions": MedicalHistorySerializer(history, many=True).data
+        })
+

@@ -16,6 +16,7 @@ export default function DoctorAgentChat({ patientId: fixedPatientId, patientName
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [lastAttemptedInput, setLastAttemptedInput] = useState("");
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -61,11 +62,12 @@ export default function DoctorAgentChat({ patientId: fixedPatientId, patientName
   };
 
   const handleSend = async (textToSend) => {
-    const question = textToSend || input;
+    const question = textToSend || input || lastAttemptedInput;
     if (!question || !question.trim() || loading) return;
 
     setError(null);
     setInput("");
+    setLastAttemptedInput(question.trim());
 
     // Determine target patient
     const referencedPatient = findReferencedPatient(question);
@@ -112,7 +114,8 @@ export default function DoctorAgentChat({ patientId: fixedPatientId, patientName
         },
       ]);
     } catch (err) {
-      setError(err.message || "Failed to reach AI Doctor Copilot. Please try again.");
+      setError("Clinical Copilot is temporarily unavailable. (" + (err.message || "Network Error") + ")");
+      setMessages((prev) => prev.slice(0, -1));
     } finally {
       setLoading(false);
     }
@@ -281,9 +284,27 @@ export default function DoctorAgentChat({ patientId: fixedPatientId, patientName
         )}
 
         {error && (
-          <div className="flex items-center gap-2 rounded-xl bg-rose-50 p-3 text-xs text-rose-700 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900/40">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span>{error}</span>
+          <div className="flex flex-col gap-2 rounded-xl bg-rose-50 p-3 text-xs text-rose-700 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900/40">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+            {lastAttemptedInput && (
+              <div className="flex justify-end gap-2 mt-1">
+                <button 
+                  onClick={() => setError(null)} 
+                  className="px-3 py-1.5 rounded-lg bg-rose-100/50 text-rose-800 hover:bg-rose-100 font-semibold transition"
+                >
+                  Dismiss
+                </button>
+                <button 
+                  onClick={() => handleSend(lastAttemptedInput)} 
+                  className="px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700 font-semibold shadow-sm transition"
+                >
+                  Retry Connection
+                </button>
+              </div>
+            )}
           </div>
         )}
 
