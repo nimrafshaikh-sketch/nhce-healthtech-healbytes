@@ -291,11 +291,14 @@ export default function PatientProfile() {
             <div>
               <h1 className="text-lg font-semibold text-ink-900">{patient.name}</h1>
               <p className="text-sm text-ink-500">
-                {patient.age} years · {patient.condition}
+                {patient.age ? `${patient.age} years` : "Age N/A"}
+                {patient.condition ? ` · ${patient.condition}` : ""}
               </p>
               <div className="mt-2 flex items-center gap-2">
                 <RiskBadge level={patient.riskLevel} />
-                <span className="text-xs text-ink-400">AI Score {patient.riskScore}</span>
+                {patient.riskScore != null && (
+                  <span className="text-xs text-ink-400">AI Score {patient.riskScore}</span>
+                )}
               </div>
               <p className="mt-1 text-xs text-ink-300">
                 Last check-in: {patient.lastCheckIn ? formatRelativeTime(patient.lastCheckIn) : "No check-ins yet"}
@@ -345,21 +348,27 @@ export default function PatientProfile() {
                   <div className="flex-1">
                     <RiskBadge level={patient.riskLevel} />
                     <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-ink-300">Reason</p>
-                    <p className="mt-1 text-sm text-ink-800">{patient.reason}</p>
+                    <p className="mt-1 text-sm text-ink-800">
+                      {patient.reason || "No risk assessment recorded yet."}
+                    </p>
                     <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-ink-300">Recommended Action</p>
-                    <p className="mt-1 text-sm text-ink-800">{patient.followUpAction}</p>
+                    <p className="mt-1 text-sm text-ink-800">
+                      {patient.followUpAction || "Will appear after the next evaluated check-in."}
+                    </p>
                   </div>
                 </div>
               </div>
 
               <div className="rounded-2xl border border-ink-300/15 bg-white p-6 shadow-card">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-500">Medication Adherence</h2>
-                <p className="mt-3 text-2xl font-bold text-ink-900">{patient.medicationAdherencePct}%</p>
+                <p className="mt-3 text-2xl font-bold text-ink-900">
+                  {patient.medicationAdherencePct != null ? `${patient.medicationAdherencePct}%` : "No logs yet"}
+                </p>
                 <p className="text-xs text-ink-500">This week</p>
                 <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-ink-900/5">
                   <div
                     className="h-full rounded-full bg-brand-600"
-                    style={{ width: `${patient.medicationAdherencePct}%` }}
+                    style={{ width: `${patient.medicationAdherencePct ?? 0}%` }}
                   />
                 </div>
               </div>
@@ -392,16 +401,18 @@ export default function PatientProfile() {
                 <dl className="space-y-2.5 text-sm">
                   <div>
                     <dt className="text-xs text-ink-400">Diagnosis</dt>
-                    <dd className="text-ink-800">{patient.diagnosis}</dd>
+                    <dd className="text-ink-800">{patient.diagnosis || "None documented"}</dd>
                   </div>
                   <div>
                     <dt className="text-xs text-ink-400">Allergies</dt>
-                    <dd className="text-ink-800">{patient.allergies}</dd>
+                    <dd className="text-ink-800">{patient.allergies || "None documented"}</dd>
                   </div>
                   <div>
                     <dt className="text-xs text-ink-400">Caretaker</dt>
                     <dd className="text-ink-800">
-                      {patient.caretaker?.name} · {patient.caretaker?.relationship} · {patient.caretaker?.phone}
+                      {[patient.caretaker?.name, patient.caretaker?.relationship, patient.caretaker?.phone]
+                        .filter(Boolean)
+                        .join(" · ") || "Not added"}
                     </dd>
                   </div>
                 </dl>

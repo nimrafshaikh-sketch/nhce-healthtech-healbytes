@@ -474,9 +474,10 @@ A separate, independent capability alongside `/analyze` and
 foundation (`POST /api/v1/agents/patient-summary`) plus, on top of it, a
 Doctor Agent (`POST /api/v1/agents/doctor`) that lets an authenticated
 doctor ask natural-language questions about one of their patients -
-answered by Gemini calling into six existing, read-only capabilities
+answered by Gemini calling into nine existing, read-only capabilities
 (patient info, medications, medication adherence, risk, longitudinal
-history, patient-scoped RAG search) through the existing backend's own
+history, patient-scoped RAG search, recent check-ins, structured lab
+results, and prescription documents) through the existing backend's own
 auth/RBAC. No Receptionist/Patient agent exists yet. None of this touches,
 alters, or feeds into the deterministic pipeline described above. See
 `app/agents/README.md` for the full architecture, tool list, security

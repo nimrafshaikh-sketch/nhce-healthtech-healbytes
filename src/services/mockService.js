@@ -1,4 +1,4 @@
-import { generateId, generateInvitationCode } from "../utils/id";
+import { generateId, generateInvitationCode } from "../utils/id.js";
 
 export function getInitials(name = "") {
   return name

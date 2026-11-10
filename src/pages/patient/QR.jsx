@@ -3,6 +3,7 @@ import { RefreshCw, Clock } from "lucide-react";
 import QRCard from "../../components/healthcare/QRCard";
 import Button from "../../components/ui/Button";
 import { useAuth } from "../../context/AuthContext";
+import { useData } from "../../context/DataContext";
 import { generateQr } from "../../api/qr.api";
 
 function secondsRemaining(expiresAt) {
@@ -12,16 +13,19 @@ function secondsRemaining(expiresAt) {
 
 export default function PatientQR() {
   const { user } = useAuth();
+  const { currentPatient } = useData();
+  const targetPatientId = currentPatient?.id ?? user?.patient_id ?? user?.id ?? null;
   const [qr, setQr] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [remaining, setRemaining] = useState(null);
 
   const refresh = useCallback(async () => {
+    if (!targetPatientId) return;
     setLoading(true);
     setError(null);
     try {
-      const result = await generateQr(user.id);
+      const result = await generateQr(targetPatientId);
       setQr(result);
       setRemaining(secondsRemaining(result.expires_at));
     } catch (err) {
@@ -29,14 +33,16 @@ export default function PatientQR() {
     } finally {
       setLoading(false);
     }
-  }, [user.id]);
+  }, [targetPatientId]);
 
   // Generate a real token on mount - this is a consultation QR, not a
   // static/permanent code, so there is nothing valid to show until one is
   // actually requested from the backend.
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (targetPatientId) {
+      refresh();
+    }
+  }, [targetPatientId, refresh]);
 
   // Live 1-second countdown to the exact expiry, and auto-mark expired
   // client-side the moment it lapses (the backend is still the actual

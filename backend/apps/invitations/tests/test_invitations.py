@@ -44,6 +44,14 @@ class InvitationFlowTests(APITestCase):
         }, format="json")
         self.assertEqual(redeem_resp.status_code, status.HTTP_201_CREATED, redeem_resp.data)
         self.assertIn("access", redeem_resp.data)
+        self.assertIn("refresh", redeem_resp.data)
+
+        from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
+        access_claims = AccessToken(redeem_resp.data["access"])
+        refresh_claims = RefreshToken(redeem_resp.data["refresh"])
+        self.assertEqual(access_claims["role"], "patient")
+        self.assertEqual(access_claims["email"], "alice@example.com")
+        self.assertEqual(refresh_claims["role"], "patient")
 
         patient = Patient.objects.get(full_name="Alice")
         self.assertTrue(patient.is_linked)

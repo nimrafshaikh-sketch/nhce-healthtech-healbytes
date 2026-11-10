@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
+import { useData } from "../../context/DataContext";
 import { getLabResultsForPatient } from "../../api/lab.api";
+import { USE_MOCK } from "../../api/client";
 import EmptyState from "../../components/ui/EmptyState";
 import { FileText, CheckCircle, Clock } from "lucide-react";
 
@@ -38,16 +40,30 @@ function mapLabRequestToDisplay(req) {
 
 export default function LabResults() {
   const { user } = useAuth();
+  const { currentPatient } = useData();
+  const patientId = currentPatient?.id ?? user?.patient_id ?? (USE_MOCK ? user?.id : null);
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    getLabResultsForPatient(user.id)
+    if (!patientId) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    getLabResultsForPatient(patientId)
       .then((data) => setResults(data.map(mapLabRequestToDisplay)))
-      .catch((err) => setError(err.message || "Could not load your lab results."))
+      .catch((err) => {
+        if (err?.status === 403) {
+          setResults([]);
+          return;
+        }
+        setError(err.message || "Could not load your lab results.");
+      })
       .finally(() => setLoading(false));
-  }, [user.id]);
+  }, [patientId]);
 
   return (
     <div className="flex-1 px-5 pb-6 pt-8">

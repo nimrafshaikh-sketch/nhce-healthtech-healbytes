@@ -1,25 +1,82 @@
-import React, { createContext, useContext, useMemo, useReducer, useCallback, useEffect } from "react";
+import React, { createContext, useContext, useMemo, useReducer, useCallback, useEffect, useRef } from "react";
 import { initialPatients, initialMedications, initialAlerts, initialCheckins, initialAppointments } from "../data/demoData";
 import { createPatient as createPatientApi, getPatients as getPatientsApi, getMyPatientProfile } from "../api/patients.api";
 import { redeemInvitation as redeemInvitationApi, generateInvitation as generateInvitationApi } from "../api/invitation.api";
-import { submitCheckin as submitCheckinApi, waitForCheckinResult } from "../api/checkin.api";
+import { submitCheckin as submitCheckinApi, getCheckins as getCheckinsApi, waitForCheckinResult } from "../api/checkin.api";
 import { analyzeCheckinAI } from "../api/ai.api";
 import { resolveAlert as resolveAlertApi, getAlerts as getAlertsApi } from "../api/alerts.api";
 import { addMedication as addMedicationApi, markMedicationStatus as markMedicationStatusApi, getMedications as getMedicationsApi } from "../api/medication.api";
 import { getMyAppointments } from "../api/appointment.api";
 import { generateId } from "../utils/id";
-import { USE_MOCK } from "../api/client";
+import { DATA_STORAGE_KEY, USE_MOCK } from "../api/client";
 import { useAuth } from "./AuthContext";
+
+const CURRENT_MODE = USE_MOCK ? "mock" : "live";
 
 const DataContext = createContext(null);
 
-const initialState = {
+const mockInitialState = {
   patients: initialPatients,
   medications: initialMedications,
   alerts: initialAlerts,
   checkins: initialCheckins,
   appointments: initialAppointments || [],
 };
+
+const emptyState = {
+  patients: [],
+  medications: [],
+  alerts: [],
+  checkins: [],
+  appointments: [],
+};
+
+const baseInitialState = USE_MOCK ? mockInitialState : emptyState;
+
+function serializeScopedData(data, ownerUserId = null) {
+  return JSON.stringify({
+    mode: CURRENT_MODE,
+    ownerUserId: ownerUserId ?? null,
+    data,
+  });
+}
+
+function parseScopedData(raw, expectedOwnerUserId = null) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || !parsed.data || parsed.mode !== CURRENT_MODE) {
+      return null;
+    }
+    if (!USE_MOCK && parsed.ownerUserId !== (expectedOwnerUserId ?? null)) {
+      return null;
+    }
+    const d = parsed.data;
+    if (!Array.isArray(d.patients)) return null;
+    return {
+      patients: d.patients || [],
+      medications: d.medications || [],
+      alerts: d.alerts || [],
+      checkins: d.checkins || [],
+      appointments: d.appointments || [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function enrichPatientFromCheckin(patient, latestCheckin) {
+  if (!patient || !latestCheckin) return patient;
+  return {
+    ...patient,
+    riskLevel: latestCheckin.riskLevel || patient.riskLevel || null,
+    riskScore: latestCheckin.riskScore !== undefined ? latestCheckin.riskScore : patient.riskScore ?? null,
+    reason: latestCheckin.reason || patient.reason || "",
+    followUpAction: latestCheckin.followUpAction || patient.followUpAction || "",
+    recommendation: latestCheckin.recommendation || patient.recommendation || "",
+    lastCheckIn: latestCheckin.date || patient.lastCheckIn || null,
+  };
+}
 
 function reducer(state, action) {
   switch (action.type) {
@@ -29,6 +86,8 @@ function reducer(state, action) {
       return { ...state, patients: action.payload };
     case "SET_MEDICATIONS":
       return { ...state, medications: action.payload };
+    case "SET_CHECKINS":
+      return { ...state, checkins: action.payload };
     case "SET_ALERTS":
       return { ...state, alerts: action.payload };
     case "SET_APPOINTMENTS":
@@ -39,17 +98,21 @@ function reducer(state, action) {
       return {
         ...state,
         patients: state.patients.map((p) =>
-          p.id === action.payload.id ? { ...p, ...action.payload.changes } : p
+          String(p.id) === String(action.payload.id) ? { ...p, ...action.payload.changes } : p
         ),
       };
-    case "ADD_CHECKIN":
-      return { ...state, checkins: [action.payload, ...state.checkins] };
+    case "ADD_CHECKIN": {
+      const next = state.checkins.filter((c) => String(c.id) !== String(action.payload.id));
+      return { ...state, checkins: [action.payload, ...next] };
+    }
     case "ADD_ALERT":
       return { ...state, alerts: [action.payload, ...state.alerts] };
     case "RESOLVE_ALERT":
       return {
         ...state,
-        alerts: state.alerts.map((a) => (a.id === action.payload.id ? { ...a, status: "RESOLVED" } : a)),
+        alerts: state.alerts.map((a) =>
+          String(a.id) === String(action.payload.id) ? { ...a, status: "RESOLVED" } : a
+        ),
       };
     case "ADD_MEDICATION":
       return { ...state, medications: [...state.medications, action.payload] };
@@ -57,7 +120,7 @@ function reducer(state, action) {
       return {
         ...state,
         medications: state.medications.map((m) =>
-          m.id === action.payload.id ? { ...m, ...action.payload.changes } : m
+          String(m.id) === String(action.payload.id) ? { ...m, ...action.payload.changes } : m
         ),
       };
     default:
@@ -66,104 +129,155 @@ function reducer(state, action) {
 }
 
 export function DataProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, initialState, (init) => {
-    try {
-      const saved = localStorage.getItem("healbytes_data");
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // ignore
-    }
-    return init;
+  const { isAuthenticated, role, user, ready } = useAuth();
+  const ownerUserIdRef = useRef(user?.id ?? null);
+  const lastOwnerKeyRef = useRef(null);
+  ownerUserIdRef.current = user?.id ?? null;
+
+  const [state, dispatch] = useReducer(reducer, baseInitialState, (init) => {
+    if (!USE_MOCK) return init;
+    const saved = parseScopedData(localStorage.getItem(DATA_STORAGE_KEY), null);
+    return saved || init;
   });
 
   React.useEffect(() => {
+    if (!ready) return;
+    if (!USE_MOCK && !isAuthenticated) {
+      try {
+        localStorage.removeItem(DATA_STORAGE_KEY);
+      } catch {
+        // ignore
+      }
+      return;
+    }
     try {
-      localStorage.setItem("healbytes_data", JSON.stringify(state));
+      localStorage.setItem(DATA_STORAGE_KEY, serializeScopedData(state, user?.id ?? null));
     } catch {
       // ignore
     }
-  }, [state]);
+  }, [state, ready, isAuthenticated, user?.id]);
 
   React.useEffect(() => {
     const handleStorage = (e) => {
-      if (e.key === "healbytes_data" && e.newValue) {
-        try {
-          dispatch({ type: "SYNC_STATE", payload: JSON.parse(e.newValue) });
-        } catch {
-          // ignore
-        }
+      if (e.key === DATA_STORAGE_KEY && e.newValue) {
+        const parsed = parseScopedData(e.newValue, ownerUserIdRef.current);
+        if (parsed) dispatch({ type: "SYNC_STATE", payload: parsed });
       }
     };
+    const handleAuthCleared = () => {
+      lastOwnerKeyRef.current = null;
+      dispatch({ type: "SYNC_STATE", payload: USE_MOCK ? mockInitialState : emptyState });
+    };
     window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
+    window.addEventListener("healbytes:auth-cleared", handleAuthCleared);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("healbytes:auth-cleared", handleAuthCleared);
+    };
   }, []);
-
-  // Live-mode data load. Previously `patients` (and everything derived from
-  // it - the whole doctor dashboard, patient search, lab-tech patient names)
-  // was seeded ONLY from hardcoded demo data (initialState above), even with
-  // VITE_USE_MOCK_DATA=false - there was no live fetch anywhere. A doctor's
-  // real patients (created via the receptionist or Add Patient flow) simply
-  // never appeared. This fetches the real list once the doctor is
-  // authenticated, and refreshData() lets any page force a reload after a
-  // mutation the reducer doesn't already model locally (e.g. prescription
-  // verification creating a Medication server-side).
-  const { isAuthenticated, role, ready } = useAuth();
 
   const loadLiveData = useCallback(async () => {
     if (USE_MOCK || !ready || !isAuthenticated) return;
     if (role === "DOCTOR") {
-      try {
-        const patients = await getPatientsApi();
-        dispatch({ type: "SET_PATIENTS", payload: patients });
-      } catch {
-        // Network/auth error - keep whatever's already in state rather than
-        // wiping it; the page-level fetches will surface their own errors.
+      const [patientsRes, medsRes, checkinsRes, alertsRes, apptsRes] = await Promise.allSettled([
+        getPatientsApi(),
+        getMedicationsApi(),
+        getCheckinsApi(),
+        getAlertsApi(),
+        getMyAppointments(),
+      ]);
+
+      const checkinsList =
+        checkinsRes.status === "fulfilled" && Array.isArray(checkinsRes.value)
+          ? [...checkinsRes.value].sort((a, b) => new Date(b.date) - new Date(a.date))
+          : null;
+
+      if (checkinsList) {
+        dispatch({ type: "SET_CHECKINS", payload: checkinsList });
       }
-      try {
-        const medications = await getMedicationsApi();
-        dispatch({ type: "SET_MEDICATIONS", payload: medications });
-      } catch {
-        // same as above
+
+      const latestByPatient = new Map();
+      const checkinById = new Map();
+      if (checkinsList) {
+        for (const c of checkinsList) {
+          checkinById.set(c.id, c);
+          const key = String(c.patientId);
+          if (!latestByPatient.has(key)) latestByPatient.set(key, c);
+        }
       }
-      try {
-        const alerts = await getAlertsApi();
-        if (alerts) dispatch({ type: "SET_ALERTS", payload: alerts });
-      } catch {
-        // same as above
+
+      if (patientsRes.status === "fulfilled" && Array.isArray(patientsRes.value)) {
+        const enrichedPatients = patientsRes.value.map((p) =>
+          enrichPatientFromCheckin(p, latestByPatient.get(String(p.id)))
+        );
+        dispatch({ type: "SET_PATIENTS", payload: enrichedPatients });
       }
-      try {
-        const appointments = await getMyAppointments();
-        if (appointments) dispatch({ type: "SET_APPOINTMENTS", payload: appointments });
-      } catch {
-        // same as above
+
+      if (medsRes.status === "fulfilled" && Array.isArray(medsRes.value)) {
+        dispatch({ type: "SET_MEDICATIONS", payload: medsRes.value });
+      }
+
+      if (alertsRes.status === "fulfilled" && Array.isArray(alertsRes.value)) {
+        const enrichedAlerts = alertsRes.value.map((a) => ({
+          ...a,
+          riskScore: a.checkinId != null ? checkinById.get(a.checkinId)?.riskScore ?? null : a.riskScore,
+        }));
+        dispatch({ type: "SET_ALERTS", payload: enrichedAlerts });
+      }
+
+      if (apptsRes.status === "fulfilled" && Array.isArray(apptsRes.value)) {
+        dispatch({ type: "SET_APPOINTMENTS", payload: apptsRes.value });
       }
     } else if (role === "PATIENT") {
-      // Previously `state.patients` was only ever live-fetched for role
-      // DOCTOR, so a patient logging in normally (not via fresh invitation
-      // redemption) had no own Patient record in state at all -
-      // getPatientById(user.id) fell through to the bare auth `user`
-      // object, and the whole patient dashboard/profile silently rendered
-      // undefined condition/riskLevel/caretaker/etc. Fetching the patient's
-      // own profile here and seeding it into `patients` fixes that for
-      // every page that reads it via getPatientById.
-      try {
-        const me = await getMyPatientProfile();
-        if (me) dispatch({ type: "SET_PATIENTS", payload: [me] });
-      } catch {
-        // same as above - keep whatever's already in state
+      const [meRes, medsRes, checkinsRes, apptsRes] = await Promise.allSettled([
+        getMyPatientProfile(),
+        getMedicationsApi(),
+        getCheckinsApi(),
+        getMyAppointments(),
+      ]);
+
+      const checkinsList =
+        checkinsRes.status === "fulfilled" && Array.isArray(checkinsRes.value)
+          ? [...checkinsRes.value].sort((a, b) => new Date(b.date) - new Date(a.date))
+          : null;
+
+      if (checkinsList) {
+        dispatch({ type: "SET_CHECKINS", payload: checkinsList });
       }
-      try {
-        const medications = await getMedicationsApi();
-        dispatch({ type: "SET_MEDICATIONS", payload: medications });
-      } catch {
-        // same as above
+
+      if (meRes.status === "fulfilled" && meRes.value) {
+        const enrichedMe = enrichPatientFromCheckin(meRes.value, checkinsList?.[0] || null);
+        dispatch({ type: "SET_PATIENTS", payload: [enrichedMe] });
       }
+
+      if (medsRes.status === "fulfilled" && Array.isArray(medsRes.value)) {
+        dispatch({ type: "SET_MEDICATIONS", payload: medsRes.value });
+      }
+
+      if (apptsRes.status === "fulfilled" && Array.isArray(apptsRes.value)) {
+        dispatch({ type: "SET_APPOINTMENTS", payload: apptsRes.value });
+      }
+    } else {
+      dispatch({ type: "SYNC_STATE", payload: emptyState });
     }
   }, [isAuthenticated, role, ready]);
 
   useEffect(() => {
+    if (!ready) return;
+    if (USE_MOCK) return;
+    const ownerKey = isAuthenticated ? `${role || ""}:${user?.id ?? ""}` : "anon";
+    if (!isAuthenticated) {
+      lastOwnerKeyRef.current = "anon";
+      dispatch({ type: "SYNC_STATE", payload: emptyState });
+      return;
+    }
+    if (lastOwnerKeyRef.current !== ownerKey) {
+      lastOwnerKeyRef.current = ownerKey;
+      const cached = parseScopedData(localStorage.getItem(DATA_STORAGE_KEY), user?.id ?? null);
+      dispatch({ type: "SYNC_STATE", payload: cached || emptyState });
+    }
     loadLiveData();
-  }, [loadLiveData]);
+  }, [ready, isAuthenticated, role, user?.id, loadLiveData]);
 
   const addPatient = useCallback(async (formData) => {
     const patient = await createPatientApi(formData);
@@ -189,24 +303,29 @@ export function DataProvider({ children }) {
 
   const submitCheckin = useCallback(
     async (patientId, payload) => {
-      const fullPayload = { patientId, ...payload };
-      // One POST, not two: previously this also called analyzeCheckinAI,
-      // which in live mode hit the exact same /checkins/ endpoint a second
-      // time and created a duplicate check-in row per submission. The real
-      // AI verdict for a check-in isn't returned by the create call at all
-      // (Django computes it afterward via Celery) - waitForCheckinResult
-      // polls the same checkin back out until that verdict lands.
+      const matchedPatient =
+        state.patients.find((p) => String(p.id) === String(patientId)) ||
+        state.patients.find((p) => p.user != null && String(p.user) === String(patientId)) ||
+        null;
+      const resolvedPatientId = matchedPatient?.id ?? patientId;
+      const fullPayload = { patientId: resolvedPatientId, ...payload };
+
       const checkinBase = await submitCheckinApi(fullPayload);
       const aiResult = USE_MOCK
         ? await analyzeCheckinAI(fullPayload)
         : await waitForCheckinResult(checkinBase.id);
-      const checkinRecord = { ...checkinBase, ...fullPayload, ...aiResult };
+      const checkinRecord = {
+        ...checkinBase,
+        ...fullPayload,
+        ...aiResult,
+        patientId: resolvedPatientId,
+      };
 
       dispatch({ type: "ADD_CHECKIN", payload: checkinRecord });
       dispatch({
         type: "UPDATE_PATIENT",
         payload: {
-          id: patientId,
+          id: resolvedPatientId,
           changes: {
             riskLevel: aiResult.riskLevel,
             riskScore: aiResult.riskScore,
@@ -218,15 +337,16 @@ export function DataProvider({ children }) {
         },
       });
 
-      if (aiResult.riskLevel === "MEDIUM" || aiResult.riskLevel === "HIGH") {
-        const patient = state.patients.find((p) => p.id === patientId);
+      // Live alerts are created exclusively by backend Celery workflows
+      // (apps.alerts.tasks.route_alert_for_checkin). Never fabricate alerts locally.
+      if (USE_MOCK && (aiResult.riskLevel === "MEDIUM" || aiResult.riskLevel === "HIGH")) {
         dispatch({
           type: "ADD_ALERT",
           payload: {
             id: generateId("alert"),
-            patientId,
-            patientName: patient?.name || "Patient",
-            avatarInitials: patient?.avatarInitials || "PT",
+            patientId: resolvedPatientId,
+            patientName: matchedPatient?.name || "Patient",
+            avatarInitials: matchedPatient?.avatarInitials || "PT",
             riskLevel: aiResult.riskLevel,
             riskScore: aiResult.riskScore,
             message: aiResult.reason,
@@ -264,10 +384,10 @@ export function DataProvider({ children }) {
       dispatch({ type: "UPDATE_MEDICATION", payload: { id: medicationId, changes: result } });
 
       // Roughly recompute adherence for the owning patient so the UI feels alive.
-      const med = state.medications.find((m) => m.id === medicationId);
+      const med = state.medications.find((m) => String(m.id) === String(medicationId));
       if (med) {
-        const patientMeds = state.medications.filter((m) => m.patientId === med.patientId);
-        const taken = patientMeds.filter((m) => (m.id === medicationId ? status === "TAKEN" : m.status === "TAKEN")).length;
+        const patientMeds = state.medications.filter((m) => String(m.patientId) === String(med.patientId));
+        const taken = patientMeds.filter((m) => (String(m.id) === String(medicationId) ? status === "TAKEN" : m.status === "TAKEN")).length;
         const pct = patientMeds.length ? Math.round((taken / patientMeds.length) * 100) : 100;
         dispatch({ type: "UPDATE_PATIENT", payload: { id: med.patientId, changes: { medicationAdherencePct: pct } } });
       }
@@ -275,27 +395,39 @@ export function DataProvider({ children }) {
     [state.medications]
   );
 
-  // Loose (string-normalized) comparisons throughout: route params
-  // (useParams()) are always strings, but live-mode ids from Django are
-  // numbers - a strict === here would silently fail to find a real patient
-  // by id even though it's right there in state.
   const getPatientById = useCallback(
-    (id) => state.patients.find((p) => String(p.id) === String(id)),
+    (id) => (id == null ? null : state.patients.find((p) => String(p.id) === String(id)) || null),
     [state.patients]
   );
+  const getPatientByUserId = useCallback(
+    (userId) => {
+      if (userId == null) return null;
+      const byUser = state.patients.find((p) => p.user != null && String(p.user) === String(userId));
+      if (byUser) return byUser;
+      return USE_MOCK ? state.patients.find((p) => String(p.id) === String(userId)) || null : null;
+    },
+    [state.patients]
+  );
+  const currentPatient = useMemo(() => {
+    if (role !== "PATIENT") return null;
+    return getPatientByUserId(user?.id) || (!USE_MOCK ? state.patients[0] || null : null);
+  }, [role, user?.id, getPatientByUserId, state.patients]);
+
   const getMedicationsForPatient = useCallback(
-    (id) => state.medications.filter((m) => String(m.patientId) === String(id)),
+    (id) => (id == null ? [] : state.medications.filter((m) => String(m.patientId) === String(id))),
     [state.medications]
   );
   const getCheckinsForPatient = useCallback(
     (id) =>
-      state.checkins
-        .filter((c) => String(c.patientId) === String(id))
-        .sort((a, b) => new Date(b.date) - new Date(a.date)),
+      id == null
+        ? []
+        : state.checkins
+            .filter((c) => String(c.patientId) === String(id))
+            .sort((a, b) => new Date(b.date) - new Date(a.date)),
     [state.checkins]
   );
   const getAlertsForPatient = useCallback(
-    (id) => state.alerts.filter((a) => String(a.patientId) === String(id)),
+    (id) => (id == null ? [] : state.alerts.filter((a) => String(a.patientId) === String(id))),
     [state.alerts]
   );
 
@@ -306,6 +438,7 @@ export function DataProvider({ children }) {
 
   const value = {
     ...state,
+    currentPatient,
     addPatient,
     refreshData: loadLiveData,
     redeemInvitationCode,
@@ -317,6 +450,7 @@ export function DataProvider({ children }) {
     addMedication,
     markMedicationStatus,
     getPatientById,
+    getPatientByUserId,
     getMedicationsForPatient,
     getCheckinsForPatient,
     getAlertsForPatient,

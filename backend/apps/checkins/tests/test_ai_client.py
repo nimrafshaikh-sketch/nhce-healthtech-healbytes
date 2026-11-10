@@ -220,3 +220,25 @@ class AIClientRichContextTests(TestCase):
         self.assertEqual(res["request_id"], "sum_1")
         called_url = mock_post.call_args.args[0]
         self.assertTrue(called_url.endswith("/api/v1/history/summary"))
+
+    def test_duration_adherence_and_multi_symptom_mapping_in_payload(self):
+        checkin = DailyCheckin.objects.create(
+            patient=self.patient,
+            checkin_date=date.today(),
+            symptoms=[
+                {"name": "Fatigue", "severity": "MILD"},
+                {"name": "Chest Discomfort", "severity": "SEVERE"},
+            ],
+            mood="okay",
+            pain_level=None,
+            symptom_duration="SEVERAL_DAYS",
+            medication_adherence="MISSED_MULTIPLE",
+        )
+        payload = _build_request_payload(checkin)
+        self.assertEqual(payload["check_in"]["symptoms"], ["Fatigue", "Chest Discomfort"])
+        self.assertEqual(payload["check_in"]["severity"], "severe")
+        self.assertEqual(payload["check_in"]["duration"], {"value": 4, "unit": "days"})
+        self.assertEqual(
+            payload["medical_context"]["medication_adherence"],
+            [{"medication_name": "Self-reported regimen", "adherence_status": "non_adherent", "last_taken": None}],
+        )

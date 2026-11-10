@@ -1,6 +1,14 @@
-import { apiFetch, USE_MOCK, mockDelay, BASE_URL } from "./client";
+import {
+  apiFetch,
+  USE_MOCK,
+  mockDelay,
+  BASE_URL,
+  currentToken,
+  isJwtExpired,
+  refreshAccessToken,
+} from "./client.js";
 
-export async function uploadDocument(formData) {
+export async function uploadDocument(formData, _retried = false) {
   if (USE_MOCK) {
     await mockDelay(600);
     return {
@@ -16,13 +24,13 @@ export async function uploadDocument(formData) {
     };
   }
 
-  // Use raw fetch for multipart/form-data
-  const auth = JSON.parse(localStorage.getItem("healbytes_auth") || "{}");
-  const token = auth.token;
-  const headers = {};
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
+  // Use raw fetch for multipart/form-data while sharing the single-flight JWT lifecycle
+  let token = currentToken();
+  if (token && isJwtExpired(token)) {
+    const renewed = await refreshAccessToken();
+    if (renewed) token = renewed;
   }
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
   const response = await fetch(`${BASE_URL}/documents/upload/`, {
     method: "POST",
@@ -30,9 +38,18 @@ export async function uploadDocument(formData) {
     body: formData,
   });
 
+  if (response.status === 401 && !_retried) {
+    const renewed = await refreshAccessToken();
+    if (renewed) {
+      return uploadDocument(formData, true);
+    }
+  }
+
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || errorData.message || `Upload failed with status ${response.status}`);
+    const err = new Error(errorData.detail || errorData.message || `Upload failed with status ${response.status}`);
+    err.status = response.status;
+    throw err;
   }
   return response.json();
 }
@@ -71,8 +88,7 @@ export async function verifyPrescriptionDocument(documentId, data) {
 }
 
 export function getDocumentViewUrl(documentId) {
-  const auth = JSON.parse(localStorage.getItem("healbytes_auth") || "{}");
-  const token = auth.token;
+  const token = currentToken();
   if (token) {
     return `${BASE_URL}/documents/${documentId}/view/?token=${encodeURIComponent(token)}`;
   }

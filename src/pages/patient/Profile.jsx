@@ -8,9 +8,20 @@ import { useData } from "../../context/DataContext";
 
 export default function PatientProfilePage() {
   const { user, logout } = useAuth();
-  const { getPatientById } = useData();
+  const { currentPatient } = useData();
   const navigate = useNavigate();
-  const patient = getPatientById(user.id) || user;
+  const fullName =
+    currentPatient?.name ||
+    [user?.first_name, user?.last_name].filter(Boolean).join(" ") ||
+    user?.name ||
+    user?.email ||
+    "Patient";
+  const patient = {
+    ...(user || {}),
+    ...(currentPatient || {}),
+    name: fullName,
+    email: currentPatient?.email || user?.email || "",
+  };
 
   function handleLogout() {
     logout();
@@ -25,17 +36,17 @@ export default function PatientProfilePage() {
         <Avatar name={patient.name} initials={patient.avatarInitials} size="lg" />
         <div>
           <p className="text-base font-semibold text-ink-900">{patient.name}</p>
-          <p className="text-sm text-ink-500">{patient.condition}</p>
-          <p className="text-xs text-ink-300">{patient.email}</p>
+          {patient.condition && <p className="text-sm text-ink-500">{patient.condition}</p>}
+          {patient.email && <p className="text-xs text-ink-300">{patient.email}</p>}
         </div>
       </div>
 
       <div className="mt-4 rounded-2xl border border-ink-300/15 bg-white p-5 shadow-card">
         <p className="text-xs font-semibold uppercase tracking-wide text-ink-300">Caretaker</p>
         <p className="mt-1 text-sm text-ink-800">
-          {patient.caretaker?.name} · {patient.caretaker?.relationship}
+          {[patient.caretaker?.name, patient.caretaker?.relationship].filter(Boolean).join(" · ") || "Not added"}
         </p>
-        <p className="text-sm text-ink-500">{patient.caretaker?.phone}</p>
+        {patient.caretaker?.phone && <p className="text-sm text-ink-500">{patient.caretaker.phone}</p>}
       </div>
 
       <Button variant="primary" fullWidth className="mt-6 mb-3" leftIcon={<QrCode size={16} />} onClick={() => navigate("/patient/qr")}>

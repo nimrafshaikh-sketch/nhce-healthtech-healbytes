@@ -3,17 +3,25 @@ import HealthTrendCard from "../../components/healthcare/HealthTrendCard";
 import { useAuth } from "../../context/AuthContext";
 import { useData } from "../../context/DataContext";
 
+import { USE_MOCK } from "../../api/client";
+
 export default function PatientAnalytics() {
   const { user } = useAuth();
-  const { getPatientById, getCheckinsForPatient, getMedicationsForPatient } = useData();
-  const patient = getPatientById(user.id) || user;
-  const checkins = getCheckinsForPatient(user.id);
-  const medications = getMedicationsForPatient(user.id);
+  const { currentPatient, getCheckinsForPatient } = useData();
+  const patient = currentPatient || user || {};
+  const patientId = currentPatient?.id ?? (USE_MOCK ? user?.id : null);
+  const checkins = patientId ? getCheckinsForPatient(patientId) : [];
 
   const consistency = Math.min(checkins.length, 7);
-  const direction = patient.riskLevel === "LOW" ? "up" : "down";
+  const direction = patient.riskLevel === "MEDIUM" || patient.riskLevel === "HIGH" ? "down" : "up";
   const trendLabel =
-    patient.riskLevel === "LOW" ? "Improving" : patient.riskLevel === "MEDIUM" ? "Needs monitoring" : "Needs attention";
+    patient.riskLevel === "LOW"
+      ? "Improving"
+      : patient.riskLevel === "MEDIUM"
+      ? "Needs monitoring"
+      : patient.riskLevel === "HIGH"
+      ? "Needs attention"
+      : "Awaiting assessment";
 
   return (
     <div className="flex-1 px-5 pb-6 pt-8">
@@ -30,7 +38,9 @@ export default function PatientAnalytics() {
 
         <div className="rounded-2xl border border-ink-300/15 bg-white p-4 shadow-card">
           <p className="text-xs font-medium uppercase tracking-wide text-ink-300">Medication Adherence</p>
-          <p className="mt-1.5 text-lg font-semibold text-ink-900">{patient.medicationAdherencePct}%</p>
+          <p className="mt-1.5 text-lg font-semibold text-ink-900">
+            {patient.medicationAdherencePct != null ? `${patient.medicationAdherencePct}%` : "No logs yet"}
+          </p>
         </div>
 
         <div className="rounded-2xl border border-ink-300/15 bg-white p-4 shadow-card">

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Sparkles, ShieldCheck, ShieldAlert, ShieldQuestion } from "lucide-react";
+import { ArrowLeft, ArrowRight, Sparkles, ShieldCheck, ShieldAlert, ShieldQuestion, Clock } from "lucide-react";
 import Button from "../../components/ui/Button";
 import Textarea from "../../components/ui/Textarea";
 import {
@@ -32,11 +32,23 @@ const RESULT_COPY = {
     title: "Your care team has been notified",
     body: "Your responses indicate symptoms that may require medical attention. Please follow the instructions from your healthcare provider.",
   },
+  PENDING: {
+    icon: Clock,
+    tone: "text-ink-600 bg-ink-900/5",
+    title: "Check-in saved — assessment pending",
+    body: "Your check-in has been saved and queued for risk evaluation. Refresh shortly to view the full assessment.",
+  },
+  UNAVAILABLE: {
+    icon: Clock,
+    tone: "text-ink-600 bg-ink-900/5",
+    title: "Check-in saved",
+    body: "Your responses were saved for your care team, though automated risk scoring is currently unavailable.",
+  },
 };
 
 export default function CheckIn() {
   const { user } = useAuth();
-  const { submitCheckin } = useData();
+  const { submitCheckin, currentPatient } = useData();
   const navigate = useNavigate();
 
   const [phase, setPhase] = useState("form"); // form | analyzing | result
@@ -103,7 +115,8 @@ export default function CheckIn() {
       notes: form.notes,
     };
     try {
-      const result = await submitCheckin(user.id, payload);
+      const targetPatientId = currentPatient?.id ?? user?.patient_id ?? user?.id;
+      const result = await submitCheckin(targetPatientId, payload);
       setAiResult(result);
       setPhase("result");
     } catch (err) {
@@ -134,7 +147,7 @@ export default function CheckIn() {
   }
 
   if (phase === "result" && aiResult) {
-    const copy = RESULT_COPY[aiResult.riskLevel] || RESULT_COPY.LOW;
+    const copy = RESULT_COPY[aiResult.riskLevel] || RESULT_COPY.UNAVAILABLE;
     const Icon = copy.icon;
     return (
       <div className="flex flex-1 flex-col px-6 py-10">
@@ -145,10 +158,12 @@ export default function CheckIn() {
           <h1 className="mt-5 text-lg font-semibold text-ink-900">{copy.title}</h1>
           <p className="mt-2 max-w-sm text-sm text-ink-600">{copy.body}</p>
 
-          {aiResult.riskLevel !== "LOW" && (
+          {aiResult.riskLevel !== "LOW" && (aiResult.recommendation || aiResult.reason) && (
             <div className="mt-5 w-full max-w-sm rounded-2xl border border-ink-300/15 bg-white p-4 text-left shadow-card">
-              <p className="text-xs font-semibold uppercase tracking-wide text-ink-300">Recommended</p>
-              <p className="mt-1 text-sm text-ink-800">{aiResult.recommendation}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-ink-300">
+                {aiResult.recommendation ? "Recommended" : "Details"}
+              </p>
+              <p className="mt-1 text-sm text-ink-800">{aiResult.recommendation || aiResult.reason}</p>
             </div>
           )}
 

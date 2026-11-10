@@ -213,3 +213,66 @@ class DocumentRAGSecuritytests(APITestCase):
         self.patient_a.save(update_fields=["user"])
         resp = self.client.get(self._rag_url(self.patient_b.id, "creatinine"), **auth_headers(patient_a_user))
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class DocumentUploadAndFilteringSecurityTests(APITestCase):
+    """Role boundaries on document uploads and query-parameter filtering."""
+
+    def setUp(self):
+        self.doctor_a = make_doctor(email="doc-up-a@example.com", username="docupa")
+        self.doctor_b = make_doctor(email="doc-up-b@example.com", username="docupb")
+        self.receptionist = make_receptionist(email="rec-up@example.com", username="recup")
+        self.lab_tech = make_lab_tech(email="lab-up@example.com", username="labup")
+        self.patient_a = Patient.objects.create(doctor=self.doctor_a, full_name="Upload Patient A")
+
+    def _post_doc(self, headers, document_type="PRESCRIPTION"):
+        return self.client.post(
+            reverse("document-list-create"),
+            data={
+                "patient": self.patient_a.id,
+                "title": "Prescription note",
+                "document_type": document_type,
+                "file": _txt("rx.txt", "Metformin 500mg twice daily"),
+            },
+            format="multipart",
+            **headers,
+        )
+
+    def test_receptionist_cannot_upload_patient_document(self):
+        resp = self._post_doc(auth_headers(self.receptionist))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_lab_tech_cannot_upload_patient_document(self):
+        resp = self._post_doc(auth_headers(self.lab_tech))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_unassigned_doctor_cannot_upload_patient_document(self):
+        resp = self._post_doc(auth_headers(self.doctor_b))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_document_type_and_malformed_patient_filters_isolated(self):
+        MedicalDocument.objects.create(
+            patient=self.patient_a, uploaded_by=self.doctor_a,
+            document_type=MedicalDocument.DocumentType.PRESCRIPTION,
+            title="Rx 1", processing_status=MedicalDocument.ProcessingStatus.PROCESSED,
+        )
+        MedicalDocument.objects.create(
+            patient=self.patient_a, uploaded_by=self.doctor_a,
+            document_type=MedicalDocument.DocumentType.LAB_REPORT,
+            title="Lab 1", processing_status=MedicalDocument.ProcessingStatus.PROCESSED,
+        )
+
+        rx_resp = self.client.get(
+            f"{reverse('document-list-create')}?patient={self.patient_a.id}&document_type=PRESCRIPTION",
+            **auth_headers(self.doctor_a),
+        )
+        self.assertEqual(rx_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(rx_resp.data["count"], 1)
+        self.assertEqual(rx_resp.data["results"][0]["title"], "Rx 1")
+
+        bad_resp = self.client.get(
+            f"{reverse('document-list-create')}?patient=not-an-id",
+            **auth_headers(self.doctor_a),
+        )
+        self.assertEqual(bad_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(bad_resp.data["count"], 0)

@@ -10,8 +10,37 @@ export function daysAgo(n) {
   return new Date(Date.now() - n * 24 * 60 * 60 * 1000);
 }
 
+export function isDateOnlyString(input) {
+  return typeof input === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.trim());
+}
+
+export function parseDateInput(input) {
+  if (!input) return null;
+  if (input instanceof Date) {
+    return Number.isNaN(input.getTime()) ? null : input;
+  }
+  if (isDateOnlyString(input)) {
+    const [y, m, d] = input.trim().split("-").map(Number);
+    const local = new Date(y, m - 1, d);
+    return Number.isNaN(local.getTime()) ? null : local;
+  }
+  const parsed = new Date(input);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function isSameLocalDay(a, b = new Date()) {
+  const da = parseDateInput(a);
+  const db = parseDateInput(b);
+  if (!da || !db) return false;
+  return da.toDateString() === db.toDateString();
+}
+
 export function formatRelativeTime(input) {
-  const date = new Date(input);
+  const date = parseDateInput(input);
+  if (!date) return "—";
+  if (isDateOnlyString(input)) {
+    return formatDayLabel(input);
+  }
   const diffMs = Date.now() - date.getTime();
   const diffMin = Math.round(diffMs / 60000);
 
@@ -26,17 +55,22 @@ export function formatRelativeTime(input) {
 }
 
 export function formatTime(input) {
-  const date = new Date(input);
+  if (isDateOnlyString(input)) return "";
+  const date = parseDateInput(input);
+  if (!date) return "";
   return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
 export function formatDateTime(input) {
-  const date = new Date(input);
+  const date = parseDateInput(input);
+  if (!date) return "—";
+  if (isDateOnlyString(input)) return formatDayLabel(input);
   return `${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${formatTime(date)}`;
 }
 
 export function formatDayLabel(input) {
-  const date = new Date(input);
+  const date = parseDateInput(input);
+  if (!date) return "—";
   const today = new Date();
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);

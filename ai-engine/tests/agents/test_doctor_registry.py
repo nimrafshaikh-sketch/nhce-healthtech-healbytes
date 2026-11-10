@@ -1,10 +1,10 @@
-"""The Doctor Agent's tool registry contains exactly the six intended
+"""The Doctor Agent's tool registry contains exactly the nine intended
 tools - no more (no unnecessary tools), no less."""
 
 from app.agents.tools.doctor_registry import build_doctor_registry
 
 
-def test_doctor_registry_has_exactly_the_six_intended_tools():
+def test_doctor_registry_has_exactly_the_nine_intended_tools():
     registry = build_doctor_registry()
     names = {decl["name"] for decl in registry.function_declarations()}
 
@@ -15,6 +15,9 @@ def test_doctor_registry_has_exactly_the_six_intended_tools():
         "get_patient_risk",
         "get_patient_history",
         "search_patient_records",
+        "get_recent_checkins",
+        "get_lab_results",
+        "get_prescriptions",
     }
 
 

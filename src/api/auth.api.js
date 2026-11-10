@@ -25,13 +25,13 @@ export async function login({ role, email, password }) {
   if (USE_MOCK) {
     await mockDelay(600);
     if (role === "DOCTOR") {
-      return { token: "demo-doctor-token", user: demoDoctor };
+      return { token: "demo-doctor-token", refreshToken: "demo-doctor-refresh", user: demoDoctor };
     }
     if (role === "RECEPTIONIST") {
-      return { token: "demo-receptionist-token", user: demoReceptionist };
+      return { token: "demo-receptionist-token", refreshToken: "demo-receptionist-refresh", user: demoReceptionist };
     }
     if (role === "LAB_TECH") {
-      return { token: "demo-lab-tech-token", user: demoLabTech };
+      return { token: "demo-lab-tech-token", refreshToken: "demo-lab-tech-refresh", user: demoLabTech };
     }
     // Match strictly by email - no fallback to initialPatients[0]. A
     // fallback here is the same class of bug as invitation.api.js's old
@@ -41,10 +41,20 @@ export async function login({ role, email, password }) {
     if (!patient) {
       throw new Error("No account found for that email. Try demo emails like rahul.sharma@healbytes.demo.");
     }
-    return { token: "demo-patient-token", user: patient };
+    return { token: "demo-patient-token", refreshToken: "demo-patient-refresh", user: patient };
   }
   const data = await apiFetch(ENDPOINTS.AUTH_LOGIN, { method: "POST", body: { email, password } });
-  return { token: data.access || data.token, user: normalizeUser(data.user) };
+  return {
+    token: data.access || data.token,
+    refreshToken: data.refresh || null,
+    user: normalizeUser(data.user),
+  };
+}
+
+export async function fetchCurrentUser(token) {
+  if (USE_MOCK) return null;
+  const raw = await apiFetch(ENDPOINTS.AUTH_ME, token ? { token } : {});
+  return normalizeUser(raw);
 }
 
 export { normalizeUser };

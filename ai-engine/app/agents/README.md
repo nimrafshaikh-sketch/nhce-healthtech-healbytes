@@ -64,8 +64,8 @@ way - see `UnauthorizedError` in `app/agents/exceptions.py`.
 | `tools/base.py` | `Tool` (name + description + JSON-schema args + handler), `ToolContext` (carries the caller's bearer token - nothing else), `ToolRegistry` (register/get/execute - the strict execution boundary). |
 | `tools/patient_tools.py` | The Phase 1 proof-of-concept tool: `get_patient_basic_info`, calling the existing `GET /api/patients/{id}/`. Reused unchanged by the Doctor Agent. |
 | `tools/default_registry.py` | `build_default_registry()` - the Phase 1 demo agent's one-tool registry. |
-| `tools/doctor_tools.py` | Phase 2: the five additional Doctor Agent tools (medications, adherence, risk, history, RAG search). |
-| `tools/doctor_registry.py` | Phase 2: `build_doctor_registry()` - all six tools the Doctor Agent may use. |
+| `tools/doctor_tools.py` | Phase 2+: the eight Doctor Agent tools (medications, adherence, risk, history, RAG search, recent check-ins, lab results, prescriptions). |
+| `tools/doctor_registry.py` | Phase 2+: `build_doctor_registry()` - all nine tools the Doctor Agent may use. |
 | `backend_client.py` | Minimal `httpx` GET wrapper (`params=` supported) that forwards the bearer token and turns backend failures into `UnauthorizedError` / `ToolExecutionError`. |
 | `agent.py` | `Agent.run()` - the system-instruction + message + history + tool-calling loop, bounded by `AGENT_MAX_TOOL_ITERATIONS`. Shared, unchanged, by both agents. |
 | `routes.py` | `POST /api/v1/agents/patient-summary` - the Phase 1 demo endpoint. Maps every agent-foundation exception to a specific HTTP status. |
@@ -131,7 +131,7 @@ Gemini                   <- reasoning/orchestration only - decides which tool(s)
     |
 Tool / Function Calling
     |
-Tool Registry             <- app/agents/tools/doctor_tools.py (6 tools, see below)
+Tool Registry             <- app/agents/tools/doctor_registry.py (9 tools, see below)
     |
 Existing Django Backend + AI Engine  <- source of truth: real data, real auth/RBAC, real deterministic analysis
     |
@@ -158,13 +158,16 @@ back, exactly as if the doctor had called that API directly.
 | `get_patient_risk` | AI Engine's deterministic `/analyze` result, already computed at check-in time and stored on the check-in (`apps.checkins.ai_client.analyze_checkin`) | `GET /api/checkins/?patient={id}` -> most recent check-in's `ai_risk_*` fields |
 | `get_patient_history` | AI Engine's deterministic `/history/summary` result (`app/history/summary_service.py`) | `GET /api/analytics/patients/{id}/ai-summary/` -> `history` (minus `medication_adherence`, which has its own tool) |
 | `search_patient_records` | Existing patient-scoped RAG (semantic embedding retrieval, keyword/TF-cosine fallback - `apps.documents.embeddings` / `apps.documents.rag`) | `GET /api/documents/rag-search/?patient_id={id}&query={q}` |
+| `get_recent_checkins` | Recent daily check-in records (symptoms, severity, check-in dates) | `GET /api/checkins/?patient={id}&ordering=-checkin_date` |
+| `get_lab_results` | Structured lab test requests and recorded results | `GET /api/labtests/requests/?patient={id}` |
+| `get_prescriptions` | Uploaded prescription documents for the patient | `GET /api/documents/?patient={id}&document_type=PRESCRIPTION` |
 
 No new calculation, no new vector store, no new database access was
 added anywhere - every tool is a thin, least-privilege HTTP wrapper (see
 `app/agents/tools/doctor_tools.py` for the exact field filtering each one
 applies) around an endpoint that already existed before Phase 2.
 
-Gemini is never forced to call every tool. It sees all six as available
+Gemini is never forced to call every tool. It sees all nine as available
 functions and picks only the ones the doctor's actual question needs -
 "is this patient's adherence okay?" calls just `get_medication_adherence`;
 "show me their basic details" calls just `get_patient_basic_info`. This
@@ -185,7 +188,7 @@ it is a pass-through to a system that was already correct.
 
 ### Authorization flow
 
-Identical to Phase 1's model, applied to every one of the six tools: the
+Identical to Phase 1's model, applied to every one of the nine tools: the
 Doctor Agent extracts the caller's bearer token from the
 `Authorization: Bearer <token>` header and forwards it as-is to whichever
 backend endpoint a tool calls. Two differences from the generic Phase 1
