@@ -5,8 +5,8 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework_simplejwt.tokens import RefreshToken
 
+from apps.accounts.serializers import EmailTokenObtainPairSerializer
 from apps.core.permissions import IsDoctor, IsReceptionist
 
 from .models import InvitationCode
@@ -102,7 +102,7 @@ class InvitationRedeemView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        refresh = RefreshToken.for_user(user)
+        refresh = EmailTokenObtainPairSerializer.get_token(user)
         return Response(
             {
                 "detail": "Account created and linked to doctor.",

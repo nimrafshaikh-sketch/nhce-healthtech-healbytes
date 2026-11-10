@@ -13,6 +13,7 @@ DocumentListCreateView.perform_create() (OCR/text-extraction, sanitization,
 chunk indexing) and queries go through the real DocumentRAGSearchView.
 """
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -21,6 +22,10 @@ from apps.core.test_utils import auth_headers, make_doctor
 from apps.documents.embeddings import semantic_embeddings_available
 from apps.documents.models import DocumentChunk, MedicalDocument
 from apps.patients.models import Patient
+
+
+def _expected_semantic_method():
+    return "semantic_embedding_pgvector" if connection.vendor == "postgresql" else "semantic_embedding_cosine"
 
 
 def _upload(client, doctor, patient, filename, content, document_type="LAB_REPORT"):
@@ -67,11 +72,12 @@ class SemanticRetrievalTests(APITestCase):
                 "September lab report. HbA1c 8.2 percent, continued elevated glycemic markers, Metformin adjusted.")
 
         resp = _rag(self.client, self.doctor, self.patient.id, "elevated blood sugar diabetes trend")
+        expected_method = _expected_semantic_method()
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
-        self.assertEqual(resp.data["retrieval_method"], "semantic_embedding_lsa")
+        self.assertEqual(resp.data["retrieval_method"], expected_method)
         self.assertGreater(resp.data["count"], 0)
         for r in resp.data["results"]:
-            self.assertEqual(r["retrieval_method"], "semantic_embedding_lsa")
+            self.assertEqual(r["retrieval_method"], expected_method)
             self.assertIn("similarity_score", r)
             self.assertIn("citation_tag", r)
 
@@ -95,15 +101,24 @@ class SemanticRetrievalTests(APITestCase):
             self.assertEqual(r["retrieval_method"], "keyword_tf_cosine_fallback")
 
     def test_single_small_document_falls_back_gracefully_no_crash(self):
-        """One document -> one chunk is a real degenerate case for
-        TruncatedSVD (needs n_components < n_samples). Must degrade to the
-        keyword fallback, never error."""
+        """A single short document with one indexed chunk is embedded and
+        retrieved cleanly by pgvector semantic retrieval without error."""
         resp = _upload(self.client, self.doctor, self.patient, "short.txt", "HbA1c: 7.0%")
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
 
         rag_resp = _rag(self.client, self.doctor, self.patient.id, "hba1c")
         self.assertEqual(rag_resp.status_code, status.HTTP_200_OK, rag_resp.data)
-        self.assertEqual(rag_resp.data["retrieval_method"], "keyword_tf_cosine_fallback")
+        self.assertEqual(rag_resp.data["retrieval_method"], _expected_semantic_method())
+
+    def test_empty_patient_short_circuits_before_loading_embedding_model(self):
+        from unittest.mock import patch
+        from apps.documents.embeddings import retrieve_patient_context_semantic
+
+        self.assertEqual(DocumentChunk.objects.filter(patient=self.patient).count(), 0)
+        with patch("apps.documents.embeddings.get_embedding_model") as mock_get_model:
+            result = retrieve_patient_context_semantic(patient_id=self.patient.id, query="hba1c")
+        self.assertIsNone(result)
+        mock_get_model.assert_not_called()
 
 
 class SemanticCrossPatientIsolationTests(APITestCase):
@@ -135,7 +150,7 @@ class SemanticCrossPatientIsolationTests(APITestCase):
 
         resp = _rag(self.client, self.doctor, self.patient_a.id, "creatinine renal risk critical dialysis")
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
-        self.assertEqual(resp.data["retrieval_method"], "semantic_embedding_lsa")
+        self.assertEqual(resp.data["retrieval_method"], _expected_semantic_method())
         for r in resp.data["results"]:
             self.assertEqual(r["patient_id"], self.patient_a.id)
             self.assertNotIn("99.9", r["chunk_text"])

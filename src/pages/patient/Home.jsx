@@ -5,7 +5,7 @@ import Avatar from "../../components/ui/Avatar";
 import NotificationBell from "../../components/layout/NotificationBell";
 import { useAuth } from "../../context/AuthContext";
 import { useData } from "../../context/DataContext";
-import { formatDayLabel, formatDateTime, formatTime } from "../../utils/dateUtils";
+import { formatDayLabel, formatDateTime, formatTime, isSameLocalDay } from "../../utils/dateUtils";
 import { getMedications } from "../../api/medication.api";
 import { getMyAppointments } from "../../api/appointment.api";
 import { USE_MOCK } from "../../api/client";
@@ -23,14 +23,36 @@ const STATUS_COPY = {
     title: "Your care team has been notified",
     note: "Please follow any instructions from your healthcare provider.",
   },
+  PENDING: {
+    title: "Check-in queued for assessment",
+    note: "Your latest check-in was saved and is awaiting automated review.",
+  },
+  UNAVAILABLE: {
+    title: "Check-in saved",
+    note: "Your care team has your latest check-in on file.",
+  },
+  NONE: {
+    title: "Ready for your daily check-in",
+    note: "Submit your check-in so your care team can monitor your progress.",
+  },
 };
 
 const TIME_ICON = { MORNING: Sun, AFTERNOON: Sunset, EVENING: Moon };
-const RISK_LABEL = { LOW: "Low Risk", MEDIUM: "Medium Risk", HIGH: "High Risk" };
+const RISK_LABEL = {
+  LOW: "Low Risk",
+  MEDIUM: "Medium Risk",
+  HIGH: "High Risk",
+  PENDING: "Pending Review",
+  UNAVAILABLE: "Not Assessed",
+  NONE: "No Check-in Yet",
+};
 const RISK_TONE = {
   LOW: "bg-risk-low-bg text-risk-low",
   MEDIUM: "bg-risk-medium-bg text-risk-medium",
   HIGH: "bg-risk-high-bg text-risk-high",
+  PENDING: "bg-ink-900/5 text-ink-600",
+  UNAVAILABLE: "bg-ink-900/5 text-ink-500",
+  NONE: "bg-ink-900/5 text-ink-500",
 };
 
 function greeting() {
@@ -42,7 +64,7 @@ function greeting() {
 
 export default function PatientHome() {
   const { user } = useAuth();
-  const { getMedicationsForPatient, getPatientById, markMedicationStatus } = useData();
+  const { currentPatient, getMedicationsForPatient, getCheckinsForPatient, markMedicationStatus } = useData();
   const [liveMedications, setLiveMedications] = useState(null);
   const [upcomingAppointment, setUpcomingAppointment] = useState(null);
   const navigate = useNavigate();
@@ -71,14 +93,18 @@ export default function PatientHome() {
     };
   }, []);
 
-  const patient = getPatientById(user?.id) || user || {};
+  const patient = currentPatient || {};
+  const patientId = currentPatient?.id ?? user?.patient_id ?? (USE_MOCK ? user?.id : null);
+  const displayName = patient.name || user?.name || user?.first_name || "Patient";
+  const displayInitials = patient.avatarInitials || user?.avatarInitials;
+  const checkins = patientId ? getCheckinsForPatient(patientId) : [];
 
   const handleToggleTake = async (e, medicationId, currentStatus) => {
     e.stopPropagation();
     const newStatus = currentStatus === "TAKEN" ? "PENDING" : "TAKEN";
     const now = new Date();
     setLiveMedications((prev) => {
-      const source = prev !== null ? prev : getMedicationsForPatient(patient.id);
+      const source = prev !== null ? prev : getMedicationsForPatient(patientId);
       return source.map((m) =>
         m.id === medicationId ? { ...m, status: newStatus, takenAt: newStatus === "TAKEN" ? now : null } : m
       );
@@ -90,7 +116,7 @@ export default function PatientHome() {
     }
   };
 
-  const rawMeds = liveMedications !== null ? liveMedications : getMedicationsForPatient(patient.id);
+  const rawMeds = liveMedications !== null ? liveMedications : getMedicationsForPatient(patientId);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -133,21 +159,25 @@ export default function PatientHome() {
 
   scheduledDoses.sort((a, b) => a.hourSort - b.hourSort);
 
-  const checkedInToday = patient.lastCheckIn && formatDayLabel(patient.lastCheckIn) === "Today";
-  const status = STATUS_COPY[patient.riskLevel] || STATUS_COPY.LOW;
+  const checkedInToday = Boolean(
+    (patient.lastCheckIn && isSameLocalDay(patient.lastCheckIn)) ||
+      checkins.some((c) => isSameLocalDay(c.date) || isSameLocalDay(c.checkinDate))
+  );
+  const effectiveRiskLevel = patient.riskLevel || (patient.lastCheckIn ? "UNAVAILABLE" : "NONE");
+  const status = STATUS_COPY[effectiveRiskLevel] || STATUS_COPY.NONE;
 
   return (
     <div className="flex-1 px-5 pb-6 pt-8">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-lg font-semibold text-ink-900">
-            {greeting()}, {user.name ? user.name.split(" ")[0] : "Patient"} 👋
+            {greeting()}, {displayName.split(" ")[0]} 👋
           </p>
           <p className="text-sm text-ink-500">Let's take care of your health today.</p>
         </div>
         <div className="flex items-center gap-2">
           <NotificationBell />
-          <Avatar name={user.name || "Patient"} initials={user.avatarInitials} />
+          <Avatar name={displayName} initials={displayInitials} />
         </div>
       </div>
 
@@ -156,10 +186,10 @@ export default function PatientHome() {
         <p className="mt-1.5 text-lg font-semibold text-ink-900">{status.title}</p>
         <span
           className={`mt-2 inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
-            RISK_TONE[patient.riskLevel] || RISK_TONE.LOW
+            RISK_TONE[effectiveRiskLevel] || RISK_TONE.NONE
           }`}
         >
-          {RISK_LABEL[patient.riskLevel] || RISK_LABEL.LOW}
+          {RISK_LABEL[effectiveRiskLevel] || RISK_LABEL.NONE}
         </span>
         <p className="mt-2 text-sm text-ink-600">{status.note}</p>
         <p className="mt-3 text-xs text-ink-300">

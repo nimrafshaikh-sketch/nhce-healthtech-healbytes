@@ -50,9 +50,29 @@ import LabDashboard from "../pages/lab/Dashboard";
 
 import { useAuth } from "../context/AuthContext";
 
+function roleHomePath(role) {
+  const normalized = role ? String(role).toUpperCase() : null;
+  if (normalized === "DOCTOR") return "/doctor/dashboard";
+  if (normalized === "RECEPTIONIST") return "/receptionist/dashboard";
+  if (normalized === "LAB_TECH") return "/lab/dashboard";
+  if (normalized === "PATIENT") return "/patient/home";
+  return "/";
+}
+
+function AuthInitializingScreen() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-canvas px-6">
+      <div className="flex flex-col items-center gap-3 text-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" />
+        <p className="text-sm font-medium text-ink-600">Restoring your session…</p>
+      </div>
+    </div>
+  );
+}
+
 function RequireRole({ role, children }) {
   const { role: currentRole, isAuthenticated, ready } = useAuth();
-  if (!ready) return null;
+  if (!ready) return <AuthInitializingScreen />;
   const cur = currentRole ? String(currentRole).toUpperCase() : null;
   const exp = role ? String(role).toUpperCase() : null;
   if (!isAuthenticated || cur !== exp) {
@@ -64,13 +84,31 @@ function RequireRole({ role, children }) {
   return children;
 }
 
+function GuestOnlyRoute({ role, children }) {
+  const { role: currentRole, isAuthenticated, ready } = useAuth();
+  if (!ready) return <AuthInitializingScreen />;
+  const cur = currentRole ? String(currentRole).toUpperCase() : null;
+  const exp = role ? String(role).toUpperCase() : null;
+  if (isAuthenticated && cur === exp) {
+    return <Navigate to={roleHomePath(cur)} replace />;
+  }
+  return children;
+}
+
 export default function AppRouter() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
 
       {/* Doctor Portal */}
-      <Route path="/doctor/login" element={<DoctorLogin />} />
+      <Route
+        path="/doctor/login"
+        element={
+          <GuestOnlyRoute role="DOCTOR">
+            <DoctorLogin />
+          </GuestOnlyRoute>
+        }
+      />
       <Route
         path="/doctor"
         element={
@@ -91,7 +129,14 @@ export default function AppRouter() {
       </Route>
 
       {/* Patient Portal */}
-      <Route path="/patient/login" element={<PatientLogin />} />
+      <Route
+        path="/patient/login"
+        element={
+          <GuestOnlyRoute role="PATIENT">
+            <PatientLogin />
+          </GuestOnlyRoute>
+        }
+      />
       <Route path="/patient/register" element={<InvitationOnboarding />} />
       <Route
         path="/patient"
@@ -115,7 +160,14 @@ export default function AppRouter() {
       </Route>
 
       {/* Receptionist Portal */}
-      <Route path="/receptionist/login" element={<ReceptionistLogin />} />
+      <Route
+        path="/receptionist/login"
+        element={
+          <GuestOnlyRoute role="RECEPTIONIST">
+            <ReceptionistLogin />
+          </GuestOnlyRoute>
+        }
+      />
       <Route
         path="/receptionist"
         element={
@@ -130,7 +182,14 @@ export default function AppRouter() {
       </Route>
 
       {/* Lab Technician Portal */}
-      <Route path="/lab/login" element={<LabLogin />} />
+      <Route
+        path="/lab/login"
+        element={
+          <GuestOnlyRoute role="LAB_TECH">
+            <LabLogin />
+          </GuestOnlyRoute>
+        }
+      />
       <Route
         path="/lab"
         element={

@@ -27,6 +27,14 @@ class DailyCheckin(TimeStampedModel):
     symptoms = models.JSONField(default=list, blank=True, help_text="List of symptom strings selected by patient.")
     mood = models.CharField(max_length=50, blank=True)
     pain_level = models.PositiveSmallIntegerField(null=True, blank=True, help_text="0-10 self-reported scale.")
+    symptom_duration = models.CharField(
+        max_length=30, blank=True, default="",
+        help_text="Self-reported symptom duration (e.g. JUST_STARTED, FEW_HOURS, SINCE_YESTERDAY, SEVERAL_DAYS).",
+    )
+    medication_adherence = models.CharField(
+        max_length=30, blank=True, default="",
+        help_text="Self-reported medication adherence (e.g. ALL_TAKEN, MISSED_ONE_DOSE, MISSED_MULTIPLE).",
+    )
     notes = models.TextField(blank=True)
     vitals = models.JSONField(default=dict, blank=True, help_text='e.g. {"temperature_c": 37.2, "heart_rate": 78}')
 

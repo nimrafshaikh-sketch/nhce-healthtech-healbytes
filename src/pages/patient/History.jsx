@@ -5,12 +5,14 @@ import EmptyState from "../../components/ui/EmptyState";
 import { useAuth } from "../../context/AuthContext";
 import { useData } from "../../context/DataContext";
 import { getMyAISummary } from "../../api/analytics.api";
+import { USE_MOCK } from "../../api/client";
 import { formatDayLabel, formatTime } from "../../utils/dateUtils";
 
 export default function PatientHistory() {
   const { user } = useAuth();
-  const { getCheckinsForPatient } = useData();
-  const checkins = getCheckinsForPatient(user.id);
+  const { currentPatient, getCheckinsForPatient } = useData();
+  const patientId = currentPatient?.id ?? (USE_MOCK ? user?.id : null);
+  const checkins = patientId ? getCheckinsForPatient(patientId) : [];
   const [aiSummary, setAiSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
 
@@ -52,10 +54,15 @@ export default function PatientHistory() {
               </div>
               <div className="pb-5">
                 <p className="text-xs text-ink-300">
-                  {formatDayLabel(c.date)} · {formatTime(c.date)}
+                  {formatDayLabel(c.date)}{formatTime(c.date) ? ` · ${formatTime(c.date)}` : ""}
                 </p>
                 <p className="text-sm font-medium text-ink-900">Daily Check-in</p>
-                <p className="mt-0.5 text-xs text-ink-500">Symptoms monitored</p>
+                <p className="mt-0.5 text-xs text-ink-500">
+                  {c.symptoms?.length
+                    ? c.symptoms.map((s) => (typeof s === "string" ? s : s.name)).join(", ")
+                    : "No symptoms reported"}
+                </p>
+                {c.reason && <p className="mt-0.5 text-xs text-ink-500">{c.reason}</p>}
                 <div className="mt-1.5">
                   <RiskBadge level={c.riskLevel} size="sm" />
                 </div>

@@ -164,7 +164,9 @@ export default function Patients() {
                       <td className="px-5 py-3">
                         <RiskBadge level={p.riskLevel} size="sm" />
                       </td>
-                      <td className="px-5 py-3 text-ink-600">{p.medicationAdherencePct}%</td>
+                      <td className="px-5 py-3 text-ink-600">
+                        {p.medicationAdherencePct != null ? `${p.medicationAdherencePct}%` : "—"}
+                      </td>
                       <td className="px-5 py-3 text-ink-600">
                         {p.nextFollowUp
                           ? new Date(p.nextFollowUp.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })

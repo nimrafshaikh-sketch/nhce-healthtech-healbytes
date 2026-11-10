@@ -1,6 +1,6 @@
-import { apiFetch, USE_MOCK, mockDelay } from "./client";
-import { ENDPOINTS } from "./endpoints";
-import { createPatientRecord, getInitials } from "../services/mockService";
+import { apiFetch, USE_MOCK, mockDelay } from "./client.js";
+import { ENDPOINTS } from "./endpoints.js";
+import { createPatientRecord, getInitials } from "../services/mockService.js";
 
 // --- Live-mode shape adapter -------------------------------------------
 // Django's Patient model/serializer (apps.patients.serializers) uses its
@@ -37,7 +37,7 @@ function normalizePatient(raw) {
     // honest defaults (not fabricated data) until AI risk scoring is
     // surfaced on the Patient record itself.
     riskLevel: raw.risk_level ?? raw.riskLevel ?? null,
-    riskScore: raw.riskScore ?? 0,
+    riskScore: raw.risk_score ?? raw.riskScore ?? null,
     condition: raw.condition ?? "",
     diagnosis: raw.diagnosis ?? "",
     allergies: raw.allergies ?? "",

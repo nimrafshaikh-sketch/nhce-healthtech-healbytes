@@ -340,14 +340,18 @@ def _get_lab_results(arguments: dict[str, Any], context: ToolContext) -> dict[st
     patient_id = arguments["patient_id"]
     client = BackendClient()
     data = client.get(
-        "/api/labtests/",
+        "/api/labtests/requests/",
         bearer_token=context.bearer_token,
         params={"patient": patient_id},
     )
     results = data.get("results", data) if isinstance(data, dict) else data
-    if not results:
+    scoped = [
+        r for r in (results or [])
+        if str(r.get("patient")) == str(patient_id)
+    ]
+    if not scoped:
         return {"patient_id": patient_id, "available": False, "message": "No structured lab results found."}
-    return {"patient_id": patient_id, "available": True, "lab_results": results[:5]}
+    return {"patient_id": patient_id, "available": True, "lab_results": scoped[:5]}
 
 get_lab_results = Tool(
     name="get_lab_results",
@@ -373,9 +377,13 @@ def _get_prescriptions(arguments: dict[str, Any], context: ToolContext) -> dict[
         params={"patient": patient_id, "document_type": "PRESCRIPTION"},
     )
     results = data.get("results", data) if isinstance(data, dict) else data
-    if not results:
+    scoped = [
+        r for r in (results or [])
+        if str(r.get("patient")) == str(patient_id)
+    ]
+    if not scoped:
         return {"patient_id": patient_id, "available": False, "message": "No prescription documents found."}
-    return {"patient_id": patient_id, "available": True, "prescriptions": results[:5]}
+    return {"patient_id": patient_id, "available": True, "prescriptions": scoped[:5]}
 
 get_prescriptions = Tool(
     name="get_prescriptions",

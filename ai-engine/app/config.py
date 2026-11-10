@@ -4,7 +4,27 @@ import os
 from dataclasses import dataclass
 from dotenv import load_dotenv
 
-load_dotenv(override=True)
+load_dotenv()
+
+
+def _safe_int(env_var: str, default: int) -> int:
+    raw = os.getenv(env_var)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(raw.strip())
+    except ValueError:
+        return default
+
+
+def _safe_float(env_var: str, default: float) -> float:
+    raw = os.getenv(env_var)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw.strip())
+    except ValueError:
+        return default
 
 
 @dataclass(frozen=True)
@@ -29,14 +49,14 @@ class Settings:
 
     @property
     def agent_max_tool_iterations(self) -> int:
-        return int(os.getenv("AGENT_MAX_TOOL_ITERATIONS", "4"))
+        return _safe_int("AGENT_MAX_TOOL_ITERATIONS", 4)
 
     # --- Existing Django backend (source of truth for data + auth/RBAC) ---
     # Tools call this over HTTP only; the AI Engine never touches the
     # database directly and never mints or bypasses auth - it forwards the
     # caller's own bearer token.
     backend_api_base_url: str = os.getenv("BACKEND_API_BASE_URL", "")
-    backend_api_timeout_seconds: float = float(os.getenv("BACKEND_API_TIMEOUT_SECONDS", "8"))
+    backend_api_timeout_seconds: float = _safe_float("BACKEND_API_TIMEOUT_SECONDS", 8.0)
 
 
 settings = Settings()

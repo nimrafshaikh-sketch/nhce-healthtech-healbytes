@@ -1,6 +1,6 @@
-import { apiFetch, USE_MOCK, mockDelay } from "./client";
-import { ENDPOINTS } from "./endpoints";
-import { getInitials } from "../services/mockService";
+import { apiFetch, USE_MOCK, mockDelay } from "./client.js";
+import { ENDPOINTS } from "./endpoints.js";
+import { getInitials } from "../services/mockService.js";
 
 // GET /alerts/ (doctor-only, own patients) was defined in ENDPOINTS but
 // never actually called from anywhere in the frontend - "Recent AI
@@ -18,6 +18,7 @@ function normalizeAlert(raw) {
   return {
     id: raw.id,
     patientId: raw.patient,
+    checkinId: raw.checkin ?? null,
     patientName: raw.patient_name || "Patient",
     avatarInitials: getInitials(raw.patient_name || ""),
     riskLevel: severityMap[raw.severity] || "LOW",

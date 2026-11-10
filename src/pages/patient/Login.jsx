@@ -18,8 +18,12 @@ export default function PatientLogin() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    await login("PATIENT", form);
-    navigate("/patient/home");
+    try {
+      await login("PATIENT", form);
+      navigate("/patient/home");
+    } catch {
+      // Handled in AuthContext
+    }
   }
 
   return (

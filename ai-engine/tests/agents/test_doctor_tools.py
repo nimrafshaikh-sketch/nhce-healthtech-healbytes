@@ -16,10 +16,13 @@ import pytest
 from app.agents.exceptions import ToolExecutionError, UnauthorizedError
 from app.agents.tools.base import ToolContext
 from app.agents.tools.doctor_tools import (
+    get_lab_results,
     get_medication_adherence,
     get_patient_history,
     get_patient_medications,
     get_patient_risk,
+    get_prescriptions,
+    get_recent_checkins,
     search_patient_records,
 )
 
@@ -238,6 +241,9 @@ def test_search_patient_records_requires_patient_id_and_query():
         (get_patient_risk, {"patient_id": "7"}),
         (get_patient_history, {"patient_id": "7"}),
         (search_patient_records, {"patient_id": "7", "query": "q"}),
+        (get_recent_checkins, {"patient_id": "7"}),
+        (get_lab_results, {"patient_id": "7"}),
+        (get_prescriptions, {"patient_id": "7"}),
     ],
 )
 def test_every_doctor_tool_fails_closed_with_no_token(tool, arguments):
@@ -253,6 +259,9 @@ def test_every_doctor_tool_fails_closed_with_no_token(tool, arguments):
         (get_patient_risk, {"patient_id": "999"}),
         (get_patient_history, {"patient_id": "999"}),
         (search_patient_records, {"patient_id": "999", "query": "q"}),
+        (get_recent_checkins, {"patient_id": "999"}),
+        (get_lab_results, {"patient_id": "999"}),
+        (get_prescriptions, {"patient_id": "999"}),
     ],
 )
 def test_every_doctor_tool_surfaces_backend_denial_for_unowned_patient(tool, arguments):
@@ -269,3 +278,41 @@ def test_every_doctor_tool_surfaces_backend_denial_for_unowned_patient(tool, arg
         mock_client_cls.return_value.get.side_effect = ToolExecutionError("404 not found")
         with pytest.raises(ToolExecutionError):
             tool.handler(arguments, ToolContext(bearer_token="tok"))
+
+
+@patch("app.agents.tools.doctor_tools.BackendClient")
+def test_get_lab_results_queries_requests_endpoint_and_isolates_patient(mock_client_cls):
+    mock_client_cls.return_value.get.return_value = {
+        "results": [
+            {"id": 10, "patient": 7, "test_name": "CBC", "status": "completed"},
+            {"id": 11, "patient": 8, "test_name": "LIPID", "status": "completed"},
+        ]
+    }
+    res = get_lab_results.handler({"patient_id": "7"}, ToolContext(bearer_token="tok"))
+    mock_client_cls.return_value.get.assert_called_once_with(
+        "/api/labtests/requests/",
+        bearer_token="tok",
+        params={"patient": "7"},
+    )
+    assert res["available"] is True
+    assert len(res["lab_results"]) == 1
+    assert res["lab_results"][0]["id"] == 10
+
+
+@patch("app.agents.tools.doctor_tools.BackendClient")
+def test_get_prescriptions_queries_prescription_type_and_isolates_patient(mock_client_cls):
+    mock_client_cls.return_value.get.return_value = {
+        "results": [
+            {"id": 21, "patient": 7, "document_type": "PRESCRIPTION", "title": "Patient 7 Rx"},
+            {"id": 22, "patient": 9, "document_type": "PRESCRIPTION", "title": "Patient 9 Rx"},
+        ]
+    }
+    res = get_prescriptions.handler({"patient_id": "7"}, ToolContext(bearer_token="tok"))
+    mock_client_cls.return_value.get.assert_called_once_with(
+        "/api/documents/",
+        bearer_token="tok",
+        params={"patient": "7", "document_type": "PRESCRIPTION"},
+    )
+    assert res["available"] is True
+    assert len(res["prescriptions"]) == 1
+    assert res["prescriptions"][0]["id"] == 21

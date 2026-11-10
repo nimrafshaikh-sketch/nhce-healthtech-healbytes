@@ -5,7 +5,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.core.test_utils import auth_headers, make_doctor, make_patient_user
+from apps.core.test_utils import auth_headers, make_doctor, make_lab_tech, make_patient_user, make_receptionist
 from apps.patients.models import Patient
 
 
@@ -123,3 +123,59 @@ class CheckinApiTests(APITestCase):
         self.client.post(reverse("checkin-list-create"), payload, format="json", **self.patient_headers)
         resp = self.client.get(reverse("checkin-list-create"), **self.doctor_headers)
         self.assertEqual(resp.data["count"], 1)
+
+    def test_omitted_checkin_date_defaults_to_today_and_rejects_duplicate(self):
+        payload = {
+            "symptoms": [{"name": "Fever", "severity": "SEVERE"}],
+            "mood": "not_good",
+            "pain_level": 8,
+            "duration": "SEVERAL_DAYS",
+            "medication_adherence": "MISSED_MULTIPLE",
+            "notes": "Started high fever",
+        }
+        r1 = self.client.post(reverse("checkin-list-create"), payload, format="json", **self.patient_headers)
+        self.assertEqual(r1.status_code, status.HTTP_201_CREATED, r1.data)
+        self.assertEqual(r1.data["symptom_duration"], "SEVERAL_DAYS")
+        self.assertEqual(r1.data["medication_adherence"], "MISSED_MULTIPLE")
+
+        r2 = self.client.post(reverse("checkin-list-create"), payload, format="json", **self.patient_headers)
+        self.assertEqual(r2.status_code, status.HTTP_400_BAD_REQUEST)
+
+        listed = self.client.get(reverse("checkin-list-create"), **self.patient_headers)
+        self.assertEqual(listed.data["count"], 1)
+        row = listed.data["results"][0]
+        self.assertEqual(row["patient"], self.patient.id)
+        self.assertEqual(row["symptom_duration"], "SEVERAL_DAYS")
+        self.assertEqual(row["medication_adherence"], "MISSED_MULTIPLE")
+        self.assertEqual(row["symptoms"], [{"name": "Fever", "severity": "SEVERE"}])
+
+    def test_invalid_patient_query_param_fails_closed(self):
+        self.client.post(reverse("checkin-list-create"), {"checkin_date": "2026-01-08", "symptoms": []}, format="json", **self.patient_headers)
+        resp = self.client.get(f"{reverse('checkin-list-create')}?patient=abc", **self.doctor_headers)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["count"], 0)
+
+    def test_cross_patient_and_non_clinical_role_isolation(self):
+        r1 = self.client.post(reverse("checkin-list-create"), {"checkin_date": "2026-01-09", "symptoms": ["Fatigue"]}, format="json", **self.patient_headers)
+        checkin_id = r1.data["id"]
+
+        other_patient_user = make_patient_user(email="other_pat@example.com")
+        Patient.objects.create(doctor=self.doctor, full_name="Other", user=other_patient_user)
+        other_pat_headers = auth_headers(other_patient_user)
+
+        other_doc = make_doctor(email="other_doc@example.com")
+        other_doc_headers = auth_headers(other_doc)
+
+        rec_headers = auth_headers(make_receptionist())
+        lab_headers = auth_headers(make_lab_tech())
+
+        # Patient isolation
+        self.assertEqual(self.client.get(reverse("checkin-list-create"), **other_pat_headers).data["count"], 0)
+        self.assertEqual(self.client.get(reverse("checkin-detail", args=[checkin_id]), **other_pat_headers).status_code, status.HTTP_404_NOT_FOUND)
+        # Doctor isolation
+        self.assertEqual(self.client.get(reverse("checkin-list-create"), **other_doc_headers).data["count"], 0)
+        self.assertEqual(self.client.get(reverse("checkin-detail", args=[checkin_id]), **other_doc_headers).status_code, status.HTTP_404_NOT_FOUND)
+        # Receptionist and Lab Tech have no check-in access
+        self.assertEqual(self.client.get(reverse("checkin-list-create"), **rec_headers).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.get(reverse("checkin-list-create"), **lab_headers).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.get(reverse("checkin-detail", args=[checkin_id]), **rec_headers).status_code, status.HTTP_403_FORBIDDEN)

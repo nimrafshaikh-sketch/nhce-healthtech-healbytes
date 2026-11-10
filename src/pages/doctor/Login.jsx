@@ -16,8 +16,12 @@ export default function DoctorLogin() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    await login("DOCTOR", form);
-    navigate("/doctor/dashboard");
+    try {
+      await login("DOCTOR", form);
+      navigate("/doctor/dashboard");
+    } catch {
+      // Handled in AuthContext
+    }
   }
 
   return (

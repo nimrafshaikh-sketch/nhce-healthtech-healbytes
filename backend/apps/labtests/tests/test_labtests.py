@@ -155,6 +155,36 @@ class LabTestFlowTests(APITestCase):
         resp = self.client.get(reverse("labtest-request-list-create"), **auth_headers(patient_user))
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_doctor_list_filters_by_patient_id_and_isolates_records(self):
+        patient_b = Patient.objects.create(doctor=self.doctor, full_name="Other Own Patient")
+        other_doc_patient = Patient.objects.create(doctor=self.other_doctor, full_name="Foreign Patient")
+
+        req_a = LabTestRequest.objects.create(patient=self.patient, requested_by=self.doctor, test_name="CBC")
+        LabTestRequest.objects.create(patient=patient_b, requested_by=self.doctor, test_name="HBA1C")
+        LabTestRequest.objects.create(patient=other_doc_patient, requested_by=self.other_doctor, test_name="LIPID")
+
+        resp_a = self.client.get(
+            f"{reverse('labtest-request-list-create')}?patient={self.patient.id}",
+            **self.doctor_headers,
+        )
+        self.assertEqual(resp_a.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp_a.data["count"], 1)
+        self.assertEqual(resp_a.data["results"][0]["id"], req_a.id)
+
+        resp_foreign = self.client.get(
+            f"{reverse('labtest-request-list-create')}?patient={other_doc_patient.id}",
+            **self.doctor_headers,
+        )
+        self.assertEqual(resp_foreign.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp_foreign.data["count"], 0)
+
+        resp_malformed = self.client.get(
+            f"{reverse('labtest-request-list-create')}?patient=invalid",
+            **self.doctor_headers,
+        )
+        self.assertEqual(resp_malformed.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp_malformed.data["count"], 0)
+
 
 class LabTestAlertNotificationTests(APITestCase):
     """Part 6/7: a new lab test request must alert the Lab Technician

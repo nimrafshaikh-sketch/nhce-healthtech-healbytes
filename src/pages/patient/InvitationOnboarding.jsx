@@ -1,11 +1,12 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { HeartPulse, CheckCircle2, UserPlus, KeyRound } from "lucide-react";
 import Input from "../../components/ui/Input";
 import Button from "../../components/ui/Button";
 import { useData } from "../../context/DataContext";
 import { useAuth } from "../../context/AuthContext";
 import { getMyPatientProfile } from "../../api/patients.api";
+import { fetchCurrentUser } from "../../api/auth.api";
 
 export default function InvitationOnboarding() {
   const { redeemInvitationCode } = useData();
@@ -33,15 +34,22 @@ export default function InvitationOnboarding() {
     try {
       const res = await redeemInvitationCode(formData);
 
-      // Root-cause fix (Part 1): the account must show the EXACT Patient
-      // record the invitation resolved to server-side (res.patient_id) -
-      // never a value fabricated from whatever the person just typed into
-      // this form. Persist the id/token first (loginAsPatient), so the
-      // follow-up authenticated fetch of the real profile has a token to
-      // send; mock mode already returns the full matched patient inline.
-      loginAsPatient({ id: res.patient_id, email: formData.email }, res.access);
-      const realProfile = res.patient || (await getMyPatientProfile());
-      if (realProfile) updateCurrentUser(realProfile);
+      loginAsPatient(
+        { id: res.patient_id, patient_id: res.patient_id, email: formData.email },
+        res.access,
+        res.refresh || null
+      );
+      const [authUser, realProfile] = await Promise.all([
+        fetchCurrentUser(res.access).catch(() => null),
+        res.patient ? Promise.resolve(res.patient) : getMyPatientProfile().catch(() => null),
+      ]);
+      if (realProfile || authUser) {
+        updateCurrentUser({
+          ...(realProfile || {}),
+          ...(authUser || {}),
+          patient_id: realProfile?.id ?? res.patient_id,
+        });
+      }
 
       setSuccess(true);
       setTimeout(() => navigate("/patient/home"), 1000);
@@ -136,9 +144,9 @@ export default function InvitationOnboarding() {
 
       <p className="mt-6 text-center text-xs text-ink-400">
         Already have an active account?{" "}
-        <a href="/login" className="font-semibold text-brand-700 hover:underline">
+        <Link to="/patient/login" className="font-semibold text-brand-700 hover:underline">
           Sign In
-        </a>
+        </Link>
       </p>
     </div>
   );

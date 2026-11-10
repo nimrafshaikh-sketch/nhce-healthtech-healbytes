@@ -27,7 +27,7 @@ export default function LabLayout() {
 
   function handleLogout() {
     logout();
-    navigate("/login");
+    navigate("/lab/login");
   }
 
   return (

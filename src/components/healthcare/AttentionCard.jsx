@@ -17,7 +17,7 @@ export default function AttentionCard({ patient, onReview }) {
           </div>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-2xl font-bold text-ink-900">{patient.riskScore}</p>
+          <p className="text-2xl font-bold text-ink-900">{patient.riskScore != null ? patient.riskScore : "—"}</p>
           <p className="text-[10px] uppercase tracking-wide text-ink-300">AI Risk Score</p>
         </div>
       </div>

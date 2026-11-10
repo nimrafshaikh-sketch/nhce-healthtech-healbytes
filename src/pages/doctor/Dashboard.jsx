@@ -8,7 +8,7 @@ import RiskBadge from "../../components/healthcare/RiskBadge";
 import EmptyState from "../../components/ui/EmptyState";
 import { useAuth } from "../../context/AuthContext";
 import { useData } from "../../context/DataContext";
-import { formatDayLabel, formatTime, formatRelativeTime } from "../../utils/dateUtils";
+import { formatDayLabel, formatTime, formatRelativeTime, isSameLocalDay } from "../../utils/dateUtils";
 import DoctorAgentChat from "../../components/doctor/DoctorAgentChat";
 
 function greeting() {
@@ -24,12 +24,12 @@ export default function DoctorDashboard() {
   const navigate = useNavigate();
 
   const needingAttention = [...patients]
-    .filter((p) => p.riskLevel && p.riskLevel !== "LOW")
+    .filter((p) => p.riskLevel === "MEDIUM" || p.riskLevel === "HIGH")
     .sort((a, b) => (b.riskScore || 0) - (a.riskScore || 0))
     .slice(0, 4);
 
   const checkedInToday = patients.filter(
-    (p) => p.lastCheckIn && Date.now() - new Date(p.lastCheckIn).getTime() < 24 * 60 * 60 * 1000
+    (p) => p.lastCheckIn && isSameLocalDay(p.lastCheckIn)
   ).length;
   const pendingCheckins = Math.max(patients.length - checkedInToday, 0);
 
@@ -168,7 +168,7 @@ export default function DoctorDashboard() {
                           {p.phone || p.phone_number || "—"}
                         </td>
                         <td className="px-5 py-3.5">
-                          <RiskBadge level={p.riskLevel || "LOW"} size="sm" />
+                          <RiskBadge level={p.riskLevel} size="sm" />
                         </td>
                         <td className="px-5 py-3.5 text-xs text-ink-500">
                           {p.lastCheckIn ? formatRelativeTime(p.lastCheckIn) : "No check-ins yet"}

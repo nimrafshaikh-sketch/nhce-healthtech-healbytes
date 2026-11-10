@@ -64,7 +64,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
-      AI_ENGINE_URL: ${AI_ENGINE_URL:-}
+      AI_ENGINE_URL: ${AI_ENGINE_URL:-http://ai_engine:8001}
       AI_ENGINE_TIMEOUT_SECONDS: ${AI_ENGINE_TIMEOUT_SECONDS:-8}
       INVITATION_CODE_EXPIRY_MINUTES: ${INVITATION_CODE_EXPIRY_MINUTES:-15}
       QR_TOKEN_EXPIRY_MINUTES: ${QR_TOKEN_EXPIRY_MINUTES:-15}
@@ -103,7 +103,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
-      AI_ENGINE_URL: ${AI_ENGINE_URL:-}
+      AI_ENGINE_URL: ${AI_ENGINE_URL:-http://ai_engine:8001}
       AI_ENGINE_TIMEOUT_SECONDS: ${AI_ENGINE_TIMEOUT_SECONDS:-8}
       EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
       EMAIL_HOST: ${EMAIL_HOST:-mailpit}
@@ -145,7 +145,7 @@ services:
       redis:
         condition: service_healthy
 
-  # Mailpit - Local SMTP testing
+  # AI Engine Service (FastAPI)
   ai_engine:
     build:
       context: ./ai-engine
@@ -158,7 +158,11 @@ services:
       - ./ai-engine:/app
     env_file:
       - ./ai-engine/.env
+    environment:
+      BACKEND_API_BASE_URL: ${BACKEND_API_BASE_URL:-http://backend:8000}
+      BACKEND_API_TIMEOUT_SECONDS: ${BACKEND_API_TIMEOUT_SECONDS:-8}
 
+  # Mailpit - Local SMTP testing
   mailpit:
     image: axllent/mailpit
     container_name: healbytes_mailpit

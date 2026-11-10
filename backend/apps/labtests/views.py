@@ -40,9 +40,17 @@ class LabTestRequestListCreateView(generics.ListCreateAPIView):
         user = self.request.user
         qs = LabTestRequest.objects.select_related("patient", "requested_by", "assigned_lab_tech")
         if user.is_doctor:
-            return qs.filter(patient__doctor=user)
-        # lab tech: the unclaimed queue, plus whatever they've already claimed
-        return qs.filter(Q(status=LabTestRequest.Status.REQUESTED) | Q(assigned_lab_tech=user))
+            qs = qs.filter(patient__doctor=user)
+        else:
+            # lab tech: the unclaimed queue, plus whatever they've already claimed
+            qs = qs.filter(Q(status=LabTestRequest.Status.REQUESTED) | Q(assigned_lab_tech=user))
+
+        patient_id = self.request.query_params.get("patient")
+        if patient_id is not None:
+            if not str(patient_id).isdigit():
+                return qs.none()
+            qs = qs.filter(patient_id=int(patient_id))
+        return qs
 
     def perform_create(self, serializer):
         patient = serializer.validated_data["patient"]

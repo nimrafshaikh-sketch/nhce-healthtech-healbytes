@@ -4,12 +4,26 @@ import RiskBadge from "../../components/healthcare/RiskBadge";
 import EmptyState from "../../components/ui/EmptyState";
 import { useAuth } from "../../context/AuthContext";
 import { useData } from "../../context/DataContext";
+import { USE_MOCK } from "../../api/client";
 import { formatRelativeTime } from "../../utils/dateUtils";
 
 export default function PatientAlerts() {
   const { user } = useAuth();
-  const { getAlertsForPatient } = useData();
-  const alerts = [...getAlertsForPatient(user.id)].sort((a, b) => new Date(b.detectedAt) - new Date(a.detectedAt));
+  const { currentPatient, getAlertsForPatient, getCheckinsForPatient } = useData();
+  const patientId = currentPatient?.id ?? (USE_MOCK ? user?.id : null);
+
+  const alerts = USE_MOCK
+    ? [...getAlertsForPatient(patientId)].sort((a, b) => new Date(b.detectedAt) - new Date(a.detectedAt))
+    : getCheckinsForPatient(patientId)
+        .filter((c) => c.riskLevel === "MEDIUM" || c.riskLevel === "HIGH")
+        .map((c) => ({
+          id: `checkin-${c.id}`,
+          riskLevel: c.riskLevel,
+          message: c.reason || c.recommendation || "Your care team was notified based on your check-in assessment.",
+          detectedAt: c.createdAt || c.date,
+          status: "ACTIVE",
+        }))
+        .sort((a, b) => new Date(b.detectedAt) - new Date(a.detectedAt));
 
   return (
     <div className="flex-1 px-5 pb-6 pt-8">

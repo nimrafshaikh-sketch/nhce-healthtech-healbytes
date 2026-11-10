@@ -32,7 +32,11 @@ logger = logging.getLogger(__name__)
 class DocumentListCreateView(generics.ListCreateAPIView):
     """List documents for authorized patient or upload a new medical document."""
     parser_classes = [MultiPartParser, FormParser, JSONParser]
-    permission_classes = [permissions.IsAuthenticated]
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [permissions.IsAuthenticated(), (IsDoctor | IsPatient)()]
+        return [permissions.IsAuthenticated()]
 
     def get_serializer_class(self):
         return MedicalDocumentUploadSerializer if self.request.method == "POST" else MedicalDocumentSerializer
@@ -40,16 +44,27 @@ class DocumentListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         user = self.request.user
         patient_id = self.request.query_params.get("patient")
+        document_type = self.request.query_params.get("document_type")
 
         if getattr(user, "is_doctor", False):
             qs = MedicalDocument.objects.filter(patient__doctor=user)
-            if patient_id and str(patient_id).isdigit():
+            if patient_id is not None:
+                if not str(patient_id).isdigit():
+                    return MedicalDocument.objects.none()
                 qs = qs.filter(patient_id=int(patient_id))
-            return qs
         elif getattr(user, "is_patient", False):
-            return MedicalDocument.objects.filter(patient__user=user)
-        # Non-clinical staff (receptionist, lab tech) have no broad document access
-        return MedicalDocument.objects.none()
+            qs = MedicalDocument.objects.filter(patient__user=user)
+            if patient_id is not None:
+                if not str(patient_id).isdigit():
+                    return MedicalDocument.objects.none()
+                qs = qs.filter(patient_id=int(patient_id))
+        else:
+            # Non-clinical staff (receptionist, lab tech) have no broad document access
+            return MedicalDocument.objects.none()
+
+        if document_type:
+            qs = qs.filter(document_type=document_type.upper())
+        return qs
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -64,15 +79,17 @@ class DocumentListCreateView(generics.ListCreateAPIView):
         validated_data = serializer.validated_data
         uploaded_file = validated_data["file"]
 
-        # Resolve patient
+        # Resolve patient with strict role-based isolation
         if getattr(user, "is_patient", False):
             patient = user.patient_profile
-        else:
+        elif getattr(user, "is_doctor", False):
             patient = validated_data.get("patient")
             if not patient:
                 raise ValidationError({"patient": "Doctor must specify target patient."})
-            if getattr(user, "is_doctor", False) and patient.doctor_id != user.id:
+            if patient.doctor_id != user.id:
                 raise PermissionDenied("You can only upload documents for your own assigned patients.")
+        else:
+            raise PermissionDenied("Only assigned doctors and patients can upload medical documents.")
 
         # Determine MIME type & size
         file_type = uploaded_file.content_type or mimetypes.guess_type(uploaded_file.name)[0] or "application/octet-stream"
@@ -568,13 +585,16 @@ class DocumentRAGSearchView(APIView):
         else:
             raise PermissionDenied("Non-clinical staff cannot access RAG retrieval.")
 
-        # Phase 2: real semantic (embedding) retrieval is primary; the
+        # Phase 3: real semantic (pgvector) retrieval is primary; the
         # original keyword/TF-cosine engine (rag.py, untouched) is the
-        # explicit fallback - used whenever semantic retrieval genuinely
-        # cannot run (no scikit-learn, or this patient has no indexed
-        # chunks yet), never silently swapped in without saying so.
+        # explicit fallback - used whenever semantic retrieval returns
+        # None (no indexed pgvector chunks yet).
         results = retrieve_patient_context_semantic(patient_id=patient.id, query=query, top_k=top_k)
-        retrieval_method = "semantic_embedding_lsa"
+        retrieval_method = (
+            results[0].get("retrieval_method", "semantic_embedding_pgvector")
+            if results
+            else "semantic_embedding_pgvector"
+        )
         if results is None:
             rag_engine = get_patient_rag_engine()
             results = rag_engine.retrieve_patient_context(patient_id=patient.id, query=query, top_k=top_k)

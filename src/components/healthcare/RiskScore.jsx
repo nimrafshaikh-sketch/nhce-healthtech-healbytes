@@ -1,12 +1,21 @@
 import React from "react";
 
-const COLOR = { LOW: "#2D9166", MEDIUM: "#B5760B", HIGH: "#B23A2E" };
+const COLOR = {
+  LOW: "#2D9166",
+  MEDIUM: "#B5760B",
+  HIGH: "#B23A2E",
+  PENDING: "#64748B",
+  UNAVAILABLE: "#94A3B8",
+};
 
-export default function RiskScore({ score = 0, level = "LOW", size = 72 }) {
+export default function RiskScore({ score = null, level = null, size = 72 }) {
+  const numericScore =
+    typeof score === "number" && !Number.isNaN(score) ? Math.min(Math.max(score, 0), 100) : null;
   const radius = (size - 8) / 2;
   const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (Math.min(Math.max(score, 0), 100) / 100) * circumference;
-  const color = COLOR[level] || COLOR.LOW;
+  const offset =
+    numericScore != null ? circumference - (numericScore / 100) * circumference : circumference;
+  const color = (level && COLOR[level]) || "#94A3B8";
 
   return (
     <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
@@ -27,9 +36,9 @@ export default function RiskScore({ score = 0, level = "LOW", size = 72 }) {
       </svg>
       <div className="absolute flex flex-col items-center">
         <span className="text-lg font-bold leading-none" style={{ color }}>
-          {score}
+          {numericScore != null ? numericScore : "—"}
         </span>
-        <span className="text-[10px] text-ink-500">/100</span>
+        <span className="text-[10px] text-ink-500">{numericScore != null ? "/100" : "score"}</span>
       </div>
     </div>
   );

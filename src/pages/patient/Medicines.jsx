@@ -7,6 +7,7 @@ import { useData } from "../../context/DataContext";
 import { getMedications } from "../../api/medication.api";
 import { getPrescriptionsForPatient } from "../../api/prescription.api";
 import { USE_MOCK } from "../../api/client";
+import { parseDateInput } from "../../utils/dateUtils";
 
 const GROUPS = [
   { key: "MORNING", label: "Morning", icon: Sun, subtitle: "8:00 AM" },
@@ -16,7 +17,8 @@ const GROUPS = [
 
 export default function Medicines() {
   const { user } = useAuth();
-  const { getMedicationsForPatient, markMedicationStatus } = useData();
+  const { currentPatient, getMedicationsForPatient, markMedicationStatus } = useData();
+  const patientId = currentPatient?.id ?? user?.patient_id ?? (USE_MOCK ? user?.id : null);
   const [liveMedications, setLiveMedications] = useState(null);
   const [prescriptions, setPrescriptions] = useState([]);
 
@@ -28,14 +30,14 @@ export default function Medicines() {
         })
         .catch(console.error);
     }
-    if (user?.id) {
-      getPrescriptionsForPatient(user.id)
+    if (patientId) {
+      getPrescriptionsForPatient(patientId)
         .then((data) => {
           setPrescriptions(Array.isArray(data) ? data : []);
         })
         .catch(console.error);
     }
-  }, [user?.id]);
+  }, [patientId]);
 
   useEffect(() => {
     loadData();
@@ -44,7 +46,7 @@ export default function Medicines() {
   const handleMarkStatus = async (medicationId, status) => {
     const now = new Date();
     setLiveMedications((prev) => {
-      const source = prev !== null ? prev : getMedicationsForPatient(user?.id);
+      const source = prev !== null ? prev : getMedicationsForPatient(patientId);
       return source.map((m) =>
         m.id === medicationId ? { ...m, status, takenAt: status === "TAKEN" ? now : null } : m
       );
@@ -76,7 +78,7 @@ export default function Medicines() {
     return m.timeOfDay === slotKey || slotKey === "MORNING";
   };
 
-  const allMeds = liveMedications !== null ? liveMedications : getMedicationsForPatient(user?.id) || [];
+  const allMeds = liveMedications !== null ? liveMedications : getMedicationsForPatient(patientId) || [];
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -85,9 +87,11 @@ export default function Medicines() {
     if (m.is_active === false) return false;
     const endDateStr = m.endDate || m.end_date;
     if (endDateStr) {
-      const end = new Date(endDateStr);
-      end.setHours(0, 0, 0, 0);
-      if (end < today) return false;
+      const end = parseDateInput(endDateStr);
+      if (end) {
+        end.setHours(0, 0, 0, 0);
+        if (end < today) return false;
+      }
     }
     return true;
   });
@@ -96,9 +100,11 @@ export default function Medicines() {
     if (m.is_active === false) return true;
     const endDateStr = m.endDate || m.end_date;
     if (endDateStr) {
-      const end = new Date(endDateStr);
-      end.setHours(0, 0, 0, 0);
-      if (end < today) return true;
+      const end = parseDateInput(endDateStr);
+      if (end) {
+        end.setHours(0, 0, 0, 0);
+        if (end < today) return true;
+      }
     }
     return false;
   });

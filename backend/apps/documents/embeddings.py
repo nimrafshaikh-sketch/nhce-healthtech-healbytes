@@ -10,6 +10,8 @@ Patient isolation happens at the database level by explicitly filtering
 
 import logging
 from typing import Any, Dict, List, Optional
+import numpy as np
+from django.db import connection
 from sentence_transformers import SentenceTransformer
 from pgvector.django import CosineDistance
 
@@ -34,22 +36,49 @@ def semantic_embeddings_available() -> bool:
 
 def retrieve_patient_context_semantic(patient_id: int, query: str, top_k: int = 4) -> Optional[List[Dict[str, Any]]]:
     """Real embedding-based retrieval, strictly patient-scoped via pgvector."""
-    
+    if not DocumentChunk.objects.filter(patient_id=patient_id, embedding__isnull=False).exists():
+        return None
+
     model = get_embedding_model()
     query_vector = model.encode(query).tolist()
 
-    # HARD PATIENT ISOLATION FILTER: filter by patient_id before ordering by distance
-    chunks = (
-        DocumentChunk.objects.filter(patient_id=patient_id, embedding__isnull=False)
-        .select_related("document")
-        .order_by(CosineDistance("embedding", query_vector))[:top_k]
-    )
+    if connection.vendor == "postgresql":
+        # HARD PATIENT ISOLATION FILTER: filter by patient_id before ordering by distance
+        chunks = list(
+            DocumentChunk.objects.filter(patient_id=patient_id, embedding__isnull=False)
+            .select_related("document")
+            .order_by(CosineDistance("embedding", query_vector))[:top_k]
+        )
+        scored_chunks = [(chunk, 1.0) for chunk in chunks]
+        retrieval_method = "semantic_embedding_pgvector"
+    else:
+        # Non-PostgreSQL backends (e.g., SQLite in test/dev settings) do not support
+        # pgvector's `<=>` SQL operator. Enforce the same patient_id ORM filter first,
+        # then rank that patient's persisted embeddings by exact cosine similarity.
+        patient_chunks = list(
+            DocumentChunk.objects.filter(patient_id=patient_id, embedding__isnull=False)
+            .select_related("document")
+        )
+        if not patient_chunks:
+            return None
 
-    if not chunks:
+        q_vec = np.asarray(query_vector, dtype=float)
+        q_norm = float(np.linalg.norm(q_vec))
+        scored_pairs = []
+        for chunk in patient_chunks:
+            c_vec = np.asarray(chunk.embedding, dtype=float)
+            c_norm = float(np.linalg.norm(c_vec))
+            similarity = float(np.dot(q_vec, c_vec) / (q_norm * c_norm)) if (q_norm > 0 and c_norm > 0) else 0.0
+            scored_pairs.append((chunk, round(similarity, 4)))
+        scored_pairs.sort(key=lambda pair: (pair[1], pair[0].document_date), reverse=True)
+        scored_chunks = scored_pairs[:top_k]
+        retrieval_method = "semantic_embedding_cosine"
+
+    if not scored_chunks:
         return None
 
     results = []
-    for chunk in chunks:
+    for chunk, similarity_score in scored_chunks:
         doc = chunk.document
         results.append({
             "patient_id": patient_id,
@@ -63,9 +92,9 @@ def retrieve_patient_context_semantic(patient_id: int, query: str, top_k: int = 
             "chunk_index": chunk.chunk_index,
             "chunk_text": chunk.text,
             "view_url": f"/api/documents/{doc.id}/view/",
-            "similarity_score": 1.0, # Not strictly calculated here since pgvector orders it directly
+            "similarity_score": similarity_score,
             "citation_tag": f"[Source: {chunk.document_title} (Doc #{doc.id})]",
-            "retrieval_method": "semantic_embedding_pgvector",
+            "retrieval_method": retrieval_method,
         })
 
     return results

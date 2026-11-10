@@ -18,7 +18,8 @@ export default function AlertCard({ alert, onReview, onResolve }) {
           <p className="mt-1.5 text-sm font-semibold text-ink-900">{alert.patientName}</p>
           <p className="mt-0.5 text-sm text-ink-600">{alert.message}</p>
           <p className="mt-2 text-xs text-ink-300">
-            AI Score {alert.riskScore} · Detected {formatRelativeTime(alert.detectedAt)}
+            {alert.riskScore != null ? `AI Score ${alert.riskScore} · ` : ""}
+            Detected {formatRelativeTime(alert.detectedAt)}
           </p>
         </div>
       </div>

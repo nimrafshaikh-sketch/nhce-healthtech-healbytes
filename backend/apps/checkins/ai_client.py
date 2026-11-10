@@ -198,7 +198,10 @@ def _build_historical_context(checkin) -> dict:
 def _extract_symptoms_and_severity(checkin):
     """Extract string symptoms list and severity string from checkin's symptoms, pain_level, or mood."""
     symptom_list = []
-    max_severity = "moderate"
+    severity_ranks = {"mild": 1, "low": 1, "moderate": 2, "medium": 2, "severe": 3, "high": 3}
+    rank_to_severity = {1: "mild", 2: "moderate", 3: "severe"}
+    highest_rank = 0
+
     if isinstance(checkin.symptoms, list):
         for s in checkin.symptoms:
             if isinstance(s, str) and s.strip():
@@ -207,18 +210,17 @@ def _extract_symptoms_and_severity(checkin):
                 name = s.get("name") or s.get("symptom") or s.get("title")
                 if name:
                     symptom_list.append(str(name).strip())
-                sev = str(s.get("severity", "")).lower()
-                if sev in ("severe", "high"):
-                    max_severity = "severe"
-                elif sev in ("mild", "low") and max_severity != "severe":
-                    max_severity = "mild"
+                sev = str(s.get("severity", "")).lower().strip()
+                highest_rank = max(highest_rank, severity_ranks.get(sev, 0))
     elif isinstance(checkin.symptoms, str) and checkin.symptoms.strip():
         symptom_list = [s.strip() for s in checkin.symptoms.split(",") if s.strip()]
 
     if checkin.pain_level is not None:
         severity = _severity_from_pain_level(checkin.pain_level)
+    elif highest_rank > 0:
+        severity = rank_to_severity[highest_rank]
     else:
-        severity = max_severity
+        severity = "moderate"
 
     if str(checkin.mood).lower() in ("very_unwell", "very_poor", "severe", "critical", "not_good"):
         severity = "severe"
@@ -226,11 +228,56 @@ def _extract_symptoms_and_severity(checkin):
     return symptom_list, severity
 
 
+def _duration_from_checkin(checkin) -> dict:
+    """Map self-reported symptom_duration enum to AI Engine Duration{value, unit}."""
+    raw = str(getattr(checkin, "symptom_duration", "") or "").upper().strip()
+    mapping = {
+        "JUST_STARTED": {"value": 1, "unit": "hours"},
+        "FEW_HOURS": {"value": 4, "unit": "hours"},
+        "SINCE_YESTERDAY": {"value": 2, "unit": "days"},
+        "SEVERAL_DAYS": {"value": 4, "unit": "days"},
+        "OVER_A_WEEK": {"value": 2, "unit": "weeks"},
+    }
+    return mapping.get(raw, {"value": 1, "unit": "days"})
+
+
+def _apply_self_reported_adherence(medical_context: dict, checkin) -> dict:
+    """Incorporate self-reported medication_adherence from the check-in when
+    prescribed medications lack reminder logs or patient has no logged meds."""
+    raw = str(getattr(checkin, "medication_adherence", "") or "").upper().strip()
+    adherence_map = {
+        "ALL_TAKEN": "adherent",
+        "MISSED_ONE_DOSE": "partially_adherent",
+        "MISSED_MULTIPLE": "non_adherent",
+    }
+    mapped = adherence_map.get(raw)
+    if not mapped:
+        return medical_context
+
+    existing = [dict(item) for item in medical_context.get("medication_adherence", [])]
+    if existing:
+        for item in existing:
+            if item.get("adherence_status") == "unknown":
+                item["adherence_status"] = mapped
+    else:
+        existing.append({
+            "medication_name": "Self-reported regimen",
+            "adherence_status": mapped,
+            "last_taken": None,
+        })
+
+    return {
+        "medical_history": list(medical_context.get("medical_history", [])),
+        "medication_adherence": existing,
+    }
+
+
 def _build_request_payload(checkin) -> dict:
     """Assemble complete AI analysis payload including checkin, medical context,
     and historical context."""
     patient = getattr(checkin, "patient", None)
     medical_context = _build_medical_context(patient) if patient else {"medical_history": [], "medication_adherence": []}
+    medical_context = _apply_self_reported_adherence(medical_context, checkin)
     historical_context = _build_historical_context(checkin)
     symptoms_list, severity = _extract_symptoms_and_severity(checkin)
 
@@ -241,7 +288,7 @@ def _build_request_payload(checkin) -> dict:
         "check_in": {
             "symptoms": symptoms_list,
             "severity": severity,
-            "duration": {"value": 1, "unit": "days"},
+            "duration": _duration_from_checkin(checkin),
         },
         "medical_context": medical_context,
         "historical_context": historical_context,
