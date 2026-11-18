@@ -26,6 +26,8 @@ export default function AddPatient() {
   const navigate = useNavigate();
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [error, setError] = useState(null);
   const [created, setCreated] = useState(null);
   const [copied, setCopied] = useState(false);
 
@@ -38,10 +40,13 @@ export default function AddPatient() {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    setError(null);
     setSubmitting(true);
     try {
       const patient = await addPatient(form);
       setCreated(patient);
+    } catch (err) {
+      setError(err?.message || "Unable to add patient. Please review the form and try again.");
     } finally {
       setSubmitting(false);
     }
@@ -58,8 +63,16 @@ export default function AddPatient() {
   }
 
   async function handleRegenerate() {
-    const code = await regenerateInvitation(created.id);
-    setCreated((c) => ({ ...c, invitationCode: code }));
+    setError(null);
+    setRegenerating(true);
+    try {
+      const code = await regenerateInvitation(created.id);
+      setCreated((c) => ({ ...c, invitationCode: code }));
+    } catch (err) {
+      setError(err?.message || "Could not regenerate invitation code. Please try again.");
+    } finally {
+      setRegenerating(false);
+    }
   }
 
   if (created) {
@@ -81,13 +94,24 @@ export default function AddPatient() {
                 <Button size="sm" variant="secondary" leftIcon={<Copy size={14} />} onClick={handleCopy}>
                   {copied ? "Copied" : "Copy"}
                 </Button>
-                <Button size="sm" variant="secondary" leftIcon={<RefreshCw size={14} />} onClick={handleRegenerate}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  leftIcon={<RefreshCw size={14} />}
+                  loading={regenerating}
+                  onClick={handleRegenerate}
+                >
                   Regenerate
                 </Button>
                 <Button size="sm" variant="secondary" leftIcon={<Share2 size={14} />} onClick={handleCopy}>
                   Share
                 </Button>
               </div>
+              {error && (
+                <p role="alert" className="mt-3 rounded-lg bg-risk-high-bg px-3 py-2 text-xs text-risk-high">
+                  {error}
+                </p>
+              )}
               <p className="mt-3 text-xs text-ink-400">Expires in 7 days</p>
             </div>
 
@@ -105,6 +129,21 @@ export default function AddPatient() {
       <Topbar title="Add Patient" subtitle="Bring a new patient into HealBytes." />
       <main className="flex-1 px-6 py-6">
         <form onSubmit={handleSubmit} className="mx-auto max-w-2xl space-y-6">
+          {error && (
+            <div
+              role="alert"
+              className="flex items-center justify-between gap-3 rounded-xl border border-risk-high/25 bg-risk-high-bg px-4 py-3 text-sm text-risk-high"
+            >
+              <span>{error}</span>
+              <button
+                type="button"
+                onClick={() => setError(null)}
+                className="shrink-0 text-xs font-semibold underline hover:opacity-80"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           <section className="rounded-2xl border border-ink-300/15 bg-white p-6 shadow-card">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-500">Patient Information</h2>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">

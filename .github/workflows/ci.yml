@@ -1,0 +1,100 @@
+name: HealBytes CI
+
+on:
+  push:
+    branches: ["main", "fix/*", "feat/*"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  backend-tests:
+    name: Django Backend Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies (Tesseract OCR)
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: pip install -r requirements.txt
+
+      - name: Django system check
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.test
+          DJANGO_SECRET_KEY: ci-test-secret-key
+        run: python manage.py check
+
+      - name: Run Django backend test suite
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.test
+          DJANGO_SECRET_KEY: ci-test-secret-key
+        run: python manage.py test apps --verbosity=1
+
+  ai-engine-tests:
+    name: AI Engine Pytest Suite
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-engine
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: ai-engine/requirements*.txt
+
+      - name: Install AI Engine dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run pytest suite
+        run: pytest -v
+
+  frontend-tests-and-build:
+    name: Frontend Tests & Production Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run frontend unit tests (live mode)
+        env:
+          VITE_USE_MOCK_DATA: "false"
+        run: node --test src/api/__tests__/*.test.mjs
+
+      - name: Build frontend production bundle
+        env:
+          VITE_USE_MOCK_DATA: "false"
+        run: npm run build
+
+  compose-validate:
+    name: Validate Docker Compose Config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate default and prod profiles
+        run: |
+          cp .env.example .env
+          cp ai-engine/.env.example ai-engine/.env
+          docker compose config -q
+          docker compose --profile prod config -q
+

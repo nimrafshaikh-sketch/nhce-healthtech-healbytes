@@ -1,6 +1,6 @@
-import { apiFetch, USE_MOCK, mockDelay } from "./client";
-import { ENDPOINTS } from "./endpoints";
-import { demoDoctor, demoReceptionist, demoLabTech, initialPatients } from "../data/demoData";
+import { apiFetch, USE_MOCK, mockDelay } from "./client.js";
+import { ENDPOINTS } from "./endpoints.js";
+import { demoDoctor, demoReceptionist, demoLabTech, initialPatients } from "../data/demoData.js";
 
 // Django's UserSerializer (apps.accounts.serializers) returns
 // {id, email, username, first_name, last_name, role, phone_number,
@@ -55,6 +55,19 @@ export async function fetchCurrentUser(token) {
   if (USE_MOCK) return null;
   const raw = await apiFetch(ENDPOINTS.AUTH_ME, token ? { token } : {});
   return normalizeUser(raw);
+}
+
+export async function logoutSession(refreshToken) {
+  if (USE_MOCK || !refreshToken) return;
+  try {
+    await apiFetch(ENDPOINTS.AUTH_LOGOUT, {
+      method: "POST",
+      body: { refresh: refreshToken },
+      token: null,
+    });
+  } catch {
+    // Best-effort server revocation: local session cleanup always proceeds
+  }
 }
 
 export { normalizeUser };

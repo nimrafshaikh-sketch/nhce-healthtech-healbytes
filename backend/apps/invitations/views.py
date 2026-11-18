@@ -69,6 +69,7 @@ class InvitationRevokeView(APIView):
 class InvitationRedeemView(APIView):
     """Public endpoint: the patient does not have an account yet."""
     permission_classes = [permissions.AllowAny]
+    throttle_scope = "invitation_redeem"
 
     @transaction.atomic
     def post(self, request):

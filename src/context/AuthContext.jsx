@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
-import { login as loginApi, fetchCurrentUser } from "../api/auth.api";
+import { login as loginApi, fetchCurrentUser, logoutSession } from "../api/auth.api";
 import {
   AUTH_STORAGE_KEY,
   USE_MOCK,
@@ -215,10 +215,15 @@ export function AuthProvider({ children }) {
   );
 
   const logout = useCallback(() => {
+    const stored = getStoredAuth();
+    const refreshToRevoke = stored?.refreshToken || auth.refreshToken;
     setError(null);
     setStatus("idle");
     persist(EMPTY_AUTH);
-  }, [persist]);
+    if (refreshToRevoke) {
+      logoutSession(refreshToRevoke);
+    }
+  }, [persist, auth.refreshToken]);
 
   const value = {
     role: auth.role,

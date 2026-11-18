@@ -16,12 +16,13 @@ anywhere else in this pipeline.
 
 import logging
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.analysis.lab_reference import assess_lab_result
 from app.analysis.response_builder import build_response
 from app.analysis.risk_engine import MODEL_VERSION
 from app.config import settings
+from app.core.security import require_internal_service_key
 from app.schemas.lab import LabAnalysisRequest, LabAnalysisResponse
 from app.schemas.request import AIAnalysisRequest
 from app.schemas.response import AIAnalysisResponse
@@ -38,7 +39,12 @@ def health_check() -> dict:
     return {"status": "ok", "service": settings.app_name}
 
 
-@router.post("/analyze", response_model=AIAnalysisResponse, tags=["analysis"])
+@router.post(
+    "/analyze",
+    response_model=AIAnalysisResponse,
+    tags=["analysis"],
+    dependencies=[Depends(require_internal_service_key)],
+)
 def analyze_checkin(payload: AIAnalysisRequest) -> AIAnalysisResponse:
     """Validate a check-in and return a Phase 1 rule-based risk assessment.
 
@@ -63,7 +69,12 @@ def analyze_checkin(payload: AIAnalysisRequest) -> AIAnalysisResponse:
         )
 
 
-@router.post("/lab-analysis", response_model=LabAnalysisResponse, tags=["analysis"])
+@router.post(
+    "/lab-analysis",
+    response_model=LabAnalysisResponse,
+    tags=["analysis"],
+    dependencies=[Depends(require_internal_service_key)],
+)
 def analyze_lab_result(payload: LabAnalysisRequest) -> LabAnalysisResponse:
     """Deterministically assess a single lab-technician-submitted result
     against known reference ranges (see `app/analysis/lab_reference.py`).

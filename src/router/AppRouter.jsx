@@ -1,54 +1,41 @@
-import React from "react";
+import React, { Suspense, lazy } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
-import Landing from "../pages/Landing";
-
-import DoctorLayout from "../components/layout/DoctorLayout";
-import DoctorLogin from "../pages/doctor/Login";
-import DoctorDashboard from "../pages/doctor/Dashboard";
-import Patients from "../pages/doctor/Patients";
-import AddPatient from "../pages/doctor/AddPatient";
-import DoctorPatientProfile from "../pages/doctor/PatientProfile";
-import DoctorAlerts from "../pages/doctor/Alerts";
-// DoctorAnalytics (pages/doctor/Analytics.jsx) intentionally not imported/
-// routed here - Part 10: Analytics removed from the Doctor Dashboard. The
-// file is left in place (unused) rather than deleted, in case it's wanted
-// again; the component and its API call are otherwise fully disconnected.
-import QRScanner from "../pages/doctor/QRScanner";
-import DoctorProfile from "../pages/doctor/Profile";
-
-import PatientLayout from "../components/layout/PatientLayout";
-import PatientLogin from "../pages/patient/Login";
-import InvitationOnboarding from "../pages/patient/InvitationOnboarding";
-import PatientHome from "../pages/patient/Home";
-import PatientAppointments from "../pages/patient/Appointments";
-import CheckIn from "../pages/patient/CheckIn";
-import Medicines from "../pages/patient/Medicines";
-import PatientAlerts from "../pages/patient/Alerts";
-import PatientAnalytics from "../pages/patient/Analytics";
-import PatientHistory from "../pages/patient/History";
-import PatientQR from "../pages/patient/QR";
-import PatientProfilePage from "../pages/patient/Profile";
-import PatientLabResults from "../pages/patient/LabResults";
-
-import ReceptionistLayout from "../components/layout/ReceptionistLayout";
-import ReceptionistLogin from "../pages/receptionist/Login";
-import ReceptionistDashboard from "../pages/receptionist/Dashboard";
-import ReceptionistNewPatient from "../pages/receptionist/NewPatient";
-
-import LabLayout from "../components/layout/LabLayout";
-import LabLogin from "../pages/lab/Login";
-import LabDashboard from "../pages/lab/Dashboard";
-// pages/lab/Queue.jsx and pages/lab/TestDetail.jsx intentionally not
-// imported/routed here - they were an orphaned duplicate lab-tech flow
-// (uppercase mock statuses like "COMPLETED" that never match the real
-// backend's lowercase status choices, and fields like req.testType/
-// req.patientName that don't exist on the live LabTestRequest response),
-// reachable only by typing /lab/queue directly since no nav link in
-// LabLayout.jsx points at it anymore. pages/lab/Dashboard.jsx is the one
-// real, working implementation (queue + claim + submit results in one
-// page, correctly wired to apps.labtests) and now covers this fully.
-
 import { useAuth } from "../context/AuthContext";
+
+const Landing = lazy(() => import("../pages/Landing"));
+
+const DoctorLayout = lazy(() => import("../components/layout/DoctorLayout"));
+const DoctorLogin = lazy(() => import("../pages/doctor/Login"));
+const DoctorDashboard = lazy(() => import("../pages/doctor/Dashboard"));
+const Patients = lazy(() => import("../pages/doctor/Patients"));
+const AddPatient = lazy(() => import("../pages/doctor/AddPatient"));
+const DoctorPatientProfile = lazy(() => import("../pages/doctor/PatientProfile"));
+const DoctorAlerts = lazy(() => import("../pages/doctor/Alerts"));
+const QRScanner = lazy(() => import("../pages/doctor/QRScanner"));
+const DoctorProfile = lazy(() => import("../pages/doctor/Profile"));
+
+const PatientLayout = lazy(() => import("../components/layout/PatientLayout"));
+const PatientLogin = lazy(() => import("../pages/patient/Login"));
+const InvitationOnboarding = lazy(() => import("../pages/patient/InvitationOnboarding"));
+const PatientHome = lazy(() => import("../pages/patient/Home"));
+const PatientAppointments = lazy(() => import("../pages/patient/Appointments"));
+const CheckIn = lazy(() => import("../pages/patient/CheckIn"));
+const Medicines = lazy(() => import("../pages/patient/Medicines"));
+const PatientAlerts = lazy(() => import("../pages/patient/Alerts"));
+const PatientAnalytics = lazy(() => import("../pages/patient/Analytics"));
+const PatientHistory = lazy(() => import("../pages/patient/History"));
+const PatientQR = lazy(() => import("../pages/patient/QR"));
+const PatientProfilePage = lazy(() => import("../pages/patient/Profile"));
+const PatientLabResults = lazy(() => import("../pages/patient/LabResults"));
+
+const ReceptionistLayout = lazy(() => import("../components/layout/ReceptionistLayout"));
+const ReceptionistLogin = lazy(() => import("../pages/receptionist/Login"));
+const ReceptionistDashboard = lazy(() => import("../pages/receptionist/Dashboard"));
+const ReceptionistNewPatient = lazy(() => import("../pages/receptionist/NewPatient"));
+
+const LabLayout = lazy(() => import("../components/layout/LabLayout"));
+const LabLogin = lazy(() => import("../pages/lab/Login"));
+const LabDashboard = lazy(() => import("../pages/lab/Dashboard"));
 
 function roleHomePath(role) {
   const normalized = role ? String(role).toUpperCase() : null;
@@ -95,9 +82,21 @@ function GuestOnlyRoute({ role, children }) {
   return children;
 }
 
+function RouteLoadingScreen() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-canvas px-6">
+      <div className="flex flex-col items-center gap-3 text-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" />
+        <p className="text-sm font-medium text-ink-600">Loading…</p>
+      </div>
+    </div>
+  );
+}
+
 export default function AppRouter() {
   return (
-    <Routes>
+    <Suspense fallback={<RouteLoadingScreen />}>
+      <Routes>
       <Route path="/" element={<Landing />} />
 
       {/* Doctor Portal */}
@@ -203,6 +202,7 @@ export default function AppRouter() {
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+      </Routes>
+    </Suspense>
   );
 }

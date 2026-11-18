@@ -317,6 +317,11 @@ def _parse_response(data: dict) -> dict:
     }
 
 
+def _ai_engine_headers() -> dict:
+    key = getattr(settings, "AI_ENGINE_INTERNAL_KEY", "") or ""
+    return {"X-Internal-Service-Key": key} if key else {}
+
+
 def analyze_checkin(checkin) -> dict:
     if not settings.AI_ENGINE_URL:
         logger.info("AI_ENGINE_URL not configured; skipping AI analysis for checkin %s", checkin.id)
@@ -328,10 +333,12 @@ def analyze_checkin(checkin) -> dict:
         return {**UNAVAILABLE_RESULT, "reason": "No symptoms reported; AI analysis skipped."}
 
     payload = _build_request_payload(checkin)
+    headers = _ai_engine_headers()
     try:
         response = requests.post(
             f"{settings.AI_ENGINE_URL.rstrip('/')}{ANALYZE_PATH}",
             json=payload,
+            headers=headers or None,
             timeout=settings.AI_ENGINE_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
@@ -441,10 +448,12 @@ def get_patient_history_summary(patient, as_of=None) -> Optional[dict]:
         return None
 
     payload = _serialize_patient_history_request(patient, as_of=as_of)
+    headers = _ai_engine_headers()
     try:
         response = requests.post(
             f"{settings.AI_ENGINE_URL.rstrip('/')}{HISTORY_SUMMARY_PATH}",
             json=payload,
+            headers=headers or None,
             timeout=settings.AI_ENGINE_TIMEOUT_SECONDS,
         )
         response.raise_for_status()

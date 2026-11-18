@@ -242,3 +242,52 @@ class AIClientRichContextTests(TestCase):
             payload["medical_context"]["medication_adherence"],
             [{"medication_name": "Self-reported regimen", "adherence_status": "non_adherent", "last_taken": None}],
         )
+
+    @override_settings(
+        AI_ENGINE_URL="http://ai-engine.local",
+        AI_ENGINE_TIMEOUT_SECONDS=2,
+        AI_ENGINE_INTERNAL_KEY="shared-secret-key",
+    )
+    def test_ai_clients_send_internal_service_key_header(self):
+        from apps.labtests.ai_client import analyze_lab_result
+
+        checkin = DailyCheckin.objects.create(
+            patient=self.patient,
+            checkin_date=date.today(),
+            symptoms=["Fever"],
+            pain_level=5,
+        )
+        ok_response = Mock(
+            status_code=200,
+            json=lambda: {
+                "risk_level": "Medium",
+                "risk_score": 55.0,
+                "reason": "ok",
+                "alert_recipient": "care_team",
+                "follow_up_action": "monitor",
+                "status": "NORMAL",
+                "request_id": "1",
+                "history": {},
+            },
+        )
+        ok_response.raise_for_status = lambda: None
+
+        with patch("apps.checkins.ai_client.requests.post", return_value=ok_response) as mock_checkin_post:
+            analyze_checkin(checkin)
+            self.assertEqual(
+                mock_checkin_post.call_args.kwargs["headers"],
+                {"X-Internal-Service-Key": "shared-secret-key"},
+            )
+            get_patient_history_summary(self.patient)
+            self.assertEqual(
+                mock_checkin_post.call_args.kwargs["headers"],
+                {"X-Internal-Service-Key": "shared-secret-key"},
+            )
+
+        fake_lab = Mock(id=7, result_text="HbA1c 6.0%", request=Mock(patient_id=self.patient.id, test_name="HBA1C"))
+        with patch("apps.labtests.ai_client.requests.post", return_value=ok_response) as mock_lab_post:
+            analyze_lab_result(fake_lab)
+            self.assertEqual(
+                mock_lab_post.call_args.kwargs["headers"],
+                {"X-Internal-Service-Key": "shared-secret-key"},
+            )

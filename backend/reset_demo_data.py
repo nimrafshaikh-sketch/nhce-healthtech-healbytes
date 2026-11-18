@@ -3,6 +3,7 @@
 Reset script to wipe trial/demo mock data from the database and ensure
 clean staff seed accounts are ready for live demos.
 """
+import argparse
 import os
 import sys
 import django
@@ -12,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.dev")
 django.setup()
 
+from django.conf import settings
 from apps.accounts.models import User
 from apps.patients.models import Patient
 from apps.appointments.models import Appointment
@@ -25,7 +27,20 @@ from apps.notifications.models import Notification, EmailNotificationLog
 from apps.medical_history.models import MedicalHistory
 from apps.qr.models import QRAccessGrant, QRScanLog
 
-def reset_database():
+
+def assert_safe_to_reset(force: bool = False) -> None:
+    """Block destructive database wipes outside DEBUG/dev unless explicitly confirmed."""
+    settings_module = os.environ.get("DJANGO_SETTINGS_MODULE", "")
+    is_prod_settings = settings_module.endswith(".prod") or settings_module == "config.settings.prod"
+    if (not settings.DEBUG or is_prod_settings) and not force:
+        raise RuntimeError(
+            "Refusing to wipe database while DEBUG=False or production settings "
+            f"({settings_module!r}) are active. Pass --force-production-reset to confirm."
+        )
+
+
+def reset_database(force: bool = False):
+    assert_safe_to_reset(force=force)
     print("=" * 60)
     print("Resetting HealBytes Database to Clean Demo State")
     print("=" * 60)
@@ -145,4 +160,15 @@ def reset_database():
     print("-" * 60)
 
 if __name__ == "__main__":
-    reset_database()
+    parser = argparse.ArgumentParser(description="Reset HealBytes database to clean demo seed accounts.")
+    parser.add_argument(
+        "--force-production-reset",
+        action="store_true",
+        help="Explicitly confirm destructive database wipe when DEBUG=False or prod settings are active.",
+    )
+    args = parser.parse_args()
+    try:
+        reset_database(force=args.force_production_reset)
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)

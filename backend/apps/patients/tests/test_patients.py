@@ -150,3 +150,53 @@ class PatientSerializerDerivedFieldsTests(APITestCase):
         self.assertEqual(resp.data["risk_level"], "HIGH")
         self.assertEqual(resp.data["medication_adherence_pct"], 50)
         self.assertIsNotNone(resp.data["last_checkin"])
+
+
+class PatientDataSafetyTests(APITestCase):
+    def setUp(self):
+        self.doctor = make_doctor(email="protect-doc@example.com", username="protectdoc")
+        self.patient_user = make_patient_user(email="unlink-pt@example.com", username="unlinkpt")
+        self.patient = Patient.objects.create(
+            doctor=self.doctor,
+            user=self.patient_user,
+            full_name="Protected Clinical Record",
+        )
+
+    def test_deleting_patient_user_unlinks_login_without_deleting_clinical_record(self):
+        from apps.checkins.models import DailyCheckin
+
+        checkin = DailyCheckin.objects.create(
+            patient=self.patient,
+            symptoms=["Fatigue"],
+            ai_risk_level=DailyCheckin.RiskLevel.LOW,
+        )
+
+        self.patient_user.delete()
+
+        self.patient.refresh_from_db()
+        self.assertIsNone(self.patient.user)
+        self.assertTrue(DailyCheckin.objects.filter(pk=checkin.pk).exists())
+
+    def test_deleting_doctor_with_assigned_patients_raises_protected_error(self):
+        from django.db.models.deletion import ProtectedError
+
+        with self.assertRaises(ProtectedError):
+            self.doctor.delete()
+        self.assertTrue(Patient.objects.filter(pk=self.patient.pk).exists())
+
+    def test_reset_demo_data_blocks_destructive_wipe_when_debug_false(self):
+        from unittest.mock import patch
+        from django.test import override_settings
+        import reset_demo_data
+
+        with override_settings(DEBUG=False):
+            with self.assertRaises(RuntimeError):
+                reset_demo_data.assert_safe_to_reset(force=False)
+
+        with override_settings(DEBUG=True), patch.dict("os.environ", {"DJANGO_SETTINGS_MODULE": "config.settings.prod"}):
+            with self.assertRaises(RuntimeError):
+                reset_demo_data.assert_safe_to_reset(force=False)
+
+        with override_settings(DEBUG=False):
+            # Explicit force confirmation overrides the guard
+            reset_demo_data.assert_safe_to_reset(force=True)

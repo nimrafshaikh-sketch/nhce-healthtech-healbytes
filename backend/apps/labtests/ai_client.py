@@ -98,10 +98,13 @@ def analyze_lab_result(result) -> dict:
         "test_name": lab_request.test_name,
         "result_text": result.result_text,
     }
+    key = getattr(settings, "AI_ENGINE_INTERNAL_KEY", "") or ""
+    headers = {"X-Internal-Service-Key": key} if key else None
     try:
         response = requests.post(
             f"{settings.AI_ENGINE_URL.rstrip('/')}{LAB_ANALYSIS_PATH}",
             json=payload,
+            headers=headers,
             timeout=settings.AI_ENGINE_TIMEOUT_SECONDS,
         )
         response.raise_for_status()

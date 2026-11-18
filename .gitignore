@@ -15,3 +15,6 @@ staticfiles
 protected_documents
 media
 *.sqlite3
+backups/
+deploy/nginx/certs/*.pem
+deploy/nginx/certs/*.key

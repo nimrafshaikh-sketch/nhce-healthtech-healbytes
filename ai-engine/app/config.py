@@ -58,5 +58,21 @@ class Settings:
     backend_api_base_url: str = os.getenv("BACKEND_API_BASE_URL", "")
     backend_api_timeout_seconds: float = _safe_float("BACKEND_API_TIMEOUT_SECONDS", 8.0)
 
+    @property
+    def internal_service_key(self) -> str:
+        return os.getenv("AI_ENGINE_INTERNAL_KEY", "").strip()
+
+    @property
+    def cors_allowed_origins(self) -> list[str]:
+        raw = os.getenv(
+            "AI_CORS_ALLOWED_ORIGINS",
+            os.getenv(
+                "CORS_ALLOWED_ORIGINS",
+                "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000,http://127.0.0.1:8000",
+            ),
+        )
+        origins = [item.strip() for item in raw.split(",") if item.strip() and item.strip() != "*"]
+        return origins or ["http://localhost:5173", "http://127.0.0.1:5173"]
+
 
 settings = Settings()

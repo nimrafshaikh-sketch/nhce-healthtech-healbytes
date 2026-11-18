@@ -365,3 +365,11 @@ No automated test suite is configured for the frontend yet.
 - [`HealBytes_Independent_Verification_Report.md`](./HealBytes_Independent_Verification_Report.md) — independent security and functionality audit
 - [`database/README.md`](./database/README.md) — reference database schema notes
 - [`backend/README.md`](./backend/README.md) and [`ai-engine/README.md`](./ai-engine/README.md) — service-specific setup and implementation notes
+
+
+## credentials
+
+Doctor (Dr. Sarah Sharma)	http://localhost:5173/doctor/login	doctor@healbytes.local	DoctorPass123!
+Patient (Rahul Verma)	http://localhost:5173/patient/login	patient@healbytes.local	PatientPass123!
+Receptionist (Priya Sharma)	http://localhost:5173/receptionist/login	receptionist@healbytes.local	ReceptionistPass123!
+Lab Technician (Anil Kumar)	http://localhost:5173/lab/login	labtech@healbytes.local	LabTechPass123!

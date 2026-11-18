@@ -1,5 +1,79 @@
-import { USE_MOCK, mockDelay, currentToken } from "./client";
-import { analyzeCheckin } from "../services/riskEngine";
+import { USE_MOCK, mockDelay, currentToken, isJwtExpired, refreshAccessToken } from "./client.js";
+import { analyzeCheckin } from "../services/riskEngine.js";
+
+function readEnv() {
+  return (typeof import.meta !== "undefined" && import.meta.env) || (typeof process !== "undefined" && process.env) || {};
+}
+
+export function getAiEngineBaseUrl() {
+  const raw = readEnv().VITE_AI_ENGINE_URL || "http://localhost:8001";
+  return String(raw).replace(/\/+$/, "");
+}
+
+export const AI_ENGINE_URL = getAiEngineBaseUrl();
+
+export function formatAgentHttpError(status, detail, agentLabel) {
+  if (status === 503) {
+    return `${agentLabel} is currently offline (AI service not configured). Please try again later.`;
+  }
+  if (status === 502 || status === 504) {
+    return `${agentLabel} could not reach the AI model provider. Please try again in a moment.`;
+  }
+  if (status === 401 || status === 403) {
+    return `Your session expired or lacks permission for ${agentLabel}. Please sign in again.`;
+  }
+  if (detail && typeof detail === "string") {
+    return detail;
+  }
+  return `${agentLabel} request failed (${status}).`;
+}
+
+async function requestAgent(path, buildBody, agentLabel, _retried = false) {
+  let token = currentToken();
+
+  if (!USE_MOCK && token && isJwtExpired(token)) {
+    const renewed = await refreshAccessToken();
+    if (renewed) {
+      token = renewed;
+    }
+  }
+
+  let res;
+  try {
+    res = await fetch(`${getAiEngineBaseUrl()}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(buildBody(token)),
+    });
+  } catch {
+    const networkErr = new Error(
+      `${agentLabel} is currently offline or unreachable. Please verify the AI Engine service is running and try again.`
+    );
+    networkErr.status = 0;
+    networkErr.code = "NETWORK_ERROR";
+    throw networkErr;
+  }
+
+  if (res.status === 401 && !USE_MOCK && !_retried) {
+    const renewed = await refreshAccessToken();
+    if (renewed) {
+      return requestAgent(path, buildBody, agentLabel, true);
+    }
+  }
+
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    const err = new Error(formatAgentHttpError(res.status, errBody.detail, agentLabel));
+    err.status = res.status;
+    err.data = errBody;
+    throw err;
+  }
+
+  return res.json();
+}
 
 // Mock-mode-only: simulates the AI engine's turnaround time and returns a
 // locally-computed risk verdict. In live mode, the AI verdict for a check-in
@@ -21,27 +95,17 @@ export async function analyzeCheckinAI(payload) {
  * Automatically injects the active doctor's auth token, patient ID, and request ID.
  */
 export async function queryDoctorAgent({ patientId, message, conversationHistory = [] }) {
-  const token = currentToken();
-  const res = await fetch("http://localhost:8001/api/v1/agents/doctor", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({
+  return requestAgent(
+    "/api/v1/agents/doctor",
+    (token) => ({
       request_id: `doc-${Date.now()}`,
       patient_id: String(patientId),
       message,
       conversation_history: conversationHistory,
       auth_token: token,
     }),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Doctor Agent request failed (${res.status})`);
-  }
-  return res.json();
+    "AI Clinical Copilot"
+  );
 }
 
 /**
@@ -49,26 +113,16 @@ export async function queryDoctorAgent({ patientId, message, conversationHistory
  * Automatically injects the active receptionist's auth token and request ID.
  */
 export async function queryReceptionistAgent({ message, patientId = null, conversationHistory = [] }) {
-  const token = currentToken();
-  const res = await fetch("http://localhost:8001/api/v1/agents/receptionist", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({
+  return requestAgent(
+    "/api/v1/agents/receptionist",
+    (token) => ({
       request_id: `rec-${Date.now()}`,
       patient_id: patientId ? String(patientId) : null,
       message,
       conversation_history: conversationHistory,
       auth_token: token,
     }),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Receptionist Agent request failed (${res.status})`);
-  }
-  return res.json();
+    "Front-Desk AI Assistant"
+  );
 }
 
