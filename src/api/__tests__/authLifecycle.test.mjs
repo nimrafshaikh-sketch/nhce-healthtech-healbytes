@@ -207,3 +207,27 @@ test("uploadDocument refreshes expired token and ignores mode-mismatched mock to
   assert.equal(getDocumentViewUrl(55), `http://localhost:8000/api/documents/55/view/?token=${encodeURIComponent(freshAccess)}`);
 });
 
+test("logoutSession posts refresh token to /auth/logout/ and ignores network failures", async () => {
+  const { logoutSession } = await import("../auth.api.js");
+  const calls = [];
+  globalThis.fetch = async (url, opts = {}) => {
+    calls.push({ url, opts });
+    return new Response(JSON.stringify({}), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  await logoutSession("sample-refresh-jwt");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "http://localhost:8000/api/auth/logout/");
+  assert.equal(calls[0].opts.method, "POST");
+  assert.deepEqual(JSON.parse(calls[0].opts.body), { refresh: "sample-refresh-jwt" });
+
+  // Network error during logout must not throw
+  globalThis.fetch = async () => {
+    throw new TypeError("Offline");
+  };
+  await logoutSession("sample-refresh-jwt");
+});
+

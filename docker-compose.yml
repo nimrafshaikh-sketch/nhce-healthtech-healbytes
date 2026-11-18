@@ -66,6 +66,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       AI_ENGINE_URL: ${AI_ENGINE_URL:-http://ai_engine:8001}
       AI_ENGINE_TIMEOUT_SECONDS: ${AI_ENGINE_TIMEOUT_SECONDS:-8}
+      AI_ENGINE_INTERNAL_KEY: ${AI_ENGINE_INTERNAL_KEY:-healbytes-internal-dev-key}
       INVITATION_CODE_EXPIRY_MINUTES: ${INVITATION_CODE_EXPIRY_MINUTES:-15}
       QR_TOKEN_EXPIRY_MINUTES: ${QR_TOKEN_EXPIRY_MINUTES:-15}
       QR_ACCESS_GRANT_MINUTES: ${QR_ACCESS_GRANT_MINUTES:-10}
@@ -105,6 +106,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       AI_ENGINE_URL: ${AI_ENGINE_URL:-http://ai_engine:8001}
       AI_ENGINE_TIMEOUT_SECONDS: ${AI_ENGINE_TIMEOUT_SECONDS:-8}
+      AI_ENGINE_INTERNAL_KEY: ${AI_ENGINE_INTERNAL_KEY:-healbytes-internal-dev-key}
       EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
       EMAIL_HOST: ${EMAIL_HOST:-mailpit}
       EMAIL_PORT: ${EMAIL_PORT:-1025}
@@ -119,7 +121,9 @@ services:
         condition: service_healthy
 
   # Celery Beat Periodic Scheduler (Dispatches medication reminders every minute)
+  # Opt-in via `docker compose --profile prod up -d celery_beat` (or `--profile scheduler`)
   celery_beat:
+    profiles: ["prod", "scheduler"]
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -161,6 +165,8 @@ services:
     environment:
       BACKEND_API_BASE_URL: ${BACKEND_API_BASE_URL:-http://backend:8000}
       BACKEND_API_TIMEOUT_SECONDS: ${BACKEND_API_TIMEOUT_SECONDS:-8}
+      AI_ENGINE_INTERNAL_KEY: ${AI_ENGINE_INTERNAL_KEY:-healbytes-internal-dev-key}
+      AI_CORS_ALLOWED_ORIGINS: ${AI_CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000,http://127.0.0.1:8000}
 
   # Mailpit - Local SMTP testing
   mailpit:
@@ -172,6 +178,24 @@ services:
       - "1025:1025"
     environment:
       MP_MAX_MESSAGES: 500
+
+  # Nginx Production Reverse Proxy & TLS Termination (React SPA + /api/ + /ai/)
+  # Opt-in via `docker compose --profile prod up -d --build`
+  nginx:
+    profiles: ["prod"]
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: healbytes_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - backend
+      - ai_engine
 
 volumes:
   postgres_data:

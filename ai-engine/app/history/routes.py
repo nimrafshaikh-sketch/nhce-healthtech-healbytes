@@ -8,8 +8,9 @@ in `app/main.py`.
 
 import logging
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.core.security import require_internal_service_key
 from app.history.schemas import PatientHistoryRequest, PatientHistorySummaryResponse
 from app.history.summary_service import build_history_summary
 
@@ -22,6 +23,7 @@ router = APIRouter()
     "/history/summary",
     response_model=PatientHistorySummaryResponse,
     tags=["patient-history"],
+    dependencies=[Depends(require_internal_service_key)],
 )
 def summarize_patient_history(payload: PatientHistoryRequest) -> PatientHistorySummaryResponse:
     """Validate a patient-history request and return a deterministic,

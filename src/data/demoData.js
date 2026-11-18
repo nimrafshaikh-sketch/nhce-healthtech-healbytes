@@ -1,4 +1,4 @@
-import { hoursAgo, daysAgo, minutesAgo } from "../utils/dateUtils";
+import { hoursAgo, daysAgo, minutesAgo } from "../utils/dateUtils.js";
 
 export const demoDoctor = {
   id: "doc_1",

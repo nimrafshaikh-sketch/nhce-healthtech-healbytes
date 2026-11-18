@@ -1,6 +1,7 @@
 // Single place to edit endpoint paths so they match the real backend.
 export const ENDPOINTS = {
   AUTH_LOGIN: "/auth/login/",
+  AUTH_LOGOUT: "/auth/logout/",
   AUTH_ME: "/auth/me/",
   PATIENTS: "/patients/",
   PATIENT_BY_ID: (id) => `/patients/${id}/`,

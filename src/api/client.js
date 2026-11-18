@@ -131,7 +131,7 @@ export async function refreshAccessToken() {
   return refreshInFlight;
 }
 
-const NO_REFRESH_PATHS = new Set(["/auth/login/", "/auth/login/refresh/", "/auth/register/doctor/"]);
+const NO_REFRESH_PATHS = new Set(["/auth/login/", "/auth/login/refresh/", "/auth/logout/", "/auth/register/doctor/"]);
 
 export async function apiFetch(path, { method = "GET", body, token, _retried = false } = {}) {
   const usesStoredSession = token === undefined;

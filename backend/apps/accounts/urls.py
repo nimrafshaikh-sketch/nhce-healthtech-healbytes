@@ -7,6 +7,8 @@ urlpatterns = [
     path("doctors/", views.DoctorListView.as_view(), name="doctor-list"),
     path("login/", views.LoginView.as_view(), name="login"),
     path("login/refresh/", views.RefreshView.as_view(), name="login-refresh"),
+    path("logout/", views.LogoutView.as_view(), name="logout"),
+    path("token/blacklist/", views.LogoutView.as_view(), name="token-blacklist"),
     path("me/", views.MeView.as_view(), name="me"),
     path("change-password/", views.ChangePasswordView.as_view(), name="change-password"),
 ]

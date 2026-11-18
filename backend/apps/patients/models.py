@@ -19,11 +19,11 @@ class Patient(TimeStampedModel):
         OTHER = "other", "Other"
 
     user = models.OneToOneField(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         related_name="patient_profile", null=True, blank=True,
     )
     doctor = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
         related_name="patients", limit_choices_to={"role": "doctor"},
     )
 
@@ -46,7 +46,8 @@ class Patient(TimeStampedModel):
         ordering = ["-created_at"]
 
     def __str__(self):
-        return f"{self.full_name} (Dr. {self.doctor.get_full_name() or self.doctor.email})"
+        doc_label = (self.doctor.get_full_name() or self.doctor.email) if self.doctor_id else "Unassigned"
+        return f"{self.full_name} (Dr. {doc_label})"
 
     @property
     def is_linked(self):

@@ -114,7 +114,7 @@ export default function DoctorAgentChat({ patientId: fixedPatientId, patientName
         },
       ]);
     } catch (err) {
-      setError("Clinical Copilot is temporarily unavailable. (" + (err.message || "Network Error") + ")");
+      setError(err.message || "AI Clinical Copilot is temporarily unavailable. Please try again.");
       setMessages((prev) => prev.slice(0, -1));
     } finally {
       setLoading(false);

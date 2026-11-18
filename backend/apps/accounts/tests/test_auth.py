@@ -141,3 +141,74 @@ class DoctorAuthTests(APITestCase):
             format="json",
         )
         self.assertEqual(exp_refresh_resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_logout_blacklists_refresh_token_and_rotated_token_cannot_replay(self):
+        from apps.core.test_utils import make_doctor
+
+        make_doctor(email="logout-doc@example.com", username="logoutdoc", password="StrongPass123!")
+        login_resp = self.client.post(
+            reverse("login"),
+            {"email": "logout-doc@example.com", "password": "StrongPass123!"},
+            format="json",
+        )
+        self.assertEqual(login_resp.status_code, status.HTTP_200_OK)
+        original_refresh = login_resp.data["refresh"]
+
+        # Rotate once: original refresh token must be blacklisted automatically
+        rotate_resp = self.client.post(
+            reverse("login-refresh"),
+            {"refresh": original_refresh},
+            format="json",
+        )
+        self.assertEqual(rotate_resp.status_code, status.HTTP_200_OK)
+        next_refresh = rotate_resp.data["refresh"]
+
+        replay_old = self.client.post(
+            reverse("login-refresh"),
+            {"refresh": original_refresh},
+            format="json",
+        )
+        self.assertEqual(replay_old.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # Explicit logout blacklists the active refresh token
+        logout_resp = self.client.post(
+            reverse("logout"),
+            {"refresh": next_refresh},
+            format="json",
+        )
+        self.assertEqual(logout_resp.status_code, status.HTTP_200_OK)
+
+        # Reusing the logged-out refresh token is rejected
+        after_logout = self.client.post(
+            reverse("login-refresh"),
+            {"refresh": next_refresh},
+            format="json",
+        )
+        self.assertEqual(after_logout.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_auth_login_and_register_endpoints_enforce_rate_throttling(self):
+        from unittest.mock import patch
+        from django.core.cache import cache
+        from rest_framework.throttling import ScopedRateThrottle
+
+        self.assertIn("auth_login", ScopedRateThrottle.THROTTLE_RATES)
+        self.assertIn("auth_register", ScopedRateThrottle.THROTTLE_RATES)
+        self.assertIn("auth_refresh", ScopedRateThrottle.THROTTLE_RATES)
+        self.assertIn("invitation_redeem", ScopedRateThrottle.THROTTLE_RATES)
+
+        cache.clear()
+        with patch.dict(ScopedRateThrottle.THROTTLE_RATES, {"auth_login": "2/minute", "auth_register": "2/minute"}):
+            for _ in range(2):
+                resp = self.client.post(
+                    reverse("login"),
+                    {"email": "nobody@example.com", "password": "WrongPassword!1"},
+                    format="json",
+                )
+                self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+            throttled = self.client.post(
+                reverse("login"),
+                {"email": "nobody@example.com", "password": "WrongPassword!1"},
+                format="json",
+            )
+            self.assertEqual(throttled.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        cache.clear()

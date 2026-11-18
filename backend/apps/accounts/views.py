@@ -3,7 +3,7 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.views import TokenBlacklistView, TokenObtainPairView, TokenRefreshView
 
 from .serializers import (
     ChangePasswordSerializer,
@@ -24,6 +24,7 @@ class DoctorRegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = DoctorRegisterSerializer
     permission_classes = [permissions.AllowAny]
+    throttle_scope = "auth_register"
 
 
 @extend_schema(tags=["Auth"], summary="List available doctors")
@@ -37,10 +38,17 @@ class DoctorListView(generics.ListAPIView):
 class LoginView(TokenObtainPairView):
     serializer_class = EmailTokenObtainPairSerializer
     permission_classes = [permissions.AllowAny]
+    throttle_scope = "auth_login"
 
 
 @extend_schema(tags=["Auth"], summary="Refresh JWT access token")
 class RefreshView(TokenRefreshView):
+    permission_classes = [permissions.AllowAny]
+    throttle_scope = "auth_refresh"
+
+
+@extend_schema(tags=["Auth"], summary="Logout (blacklist JWT refresh token)")
+class LogoutView(TokenBlacklistView):
     permission_classes = [permissions.AllowAny]
 
 

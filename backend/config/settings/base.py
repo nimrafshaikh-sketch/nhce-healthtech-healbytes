@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     # third-party
     "rest_framework",
     "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
     "drf_spectacular",
     "django_celery_beat",
     # local apps
@@ -117,6 +118,15 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": (
         "rest_framework.renderers.JSONRenderer",
     ),
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.ScopedRateThrottle",
+    ),
+    "DEFAULT_THROTTLE_RATES": {
+        "auth_login": os.environ.get("THROTTLE_AUTH_LOGIN", "10/minute"),
+        "auth_register": os.environ.get("THROTTLE_AUTH_REGISTER", "5/minute"),
+        "auth_refresh": os.environ.get("THROTTLE_AUTH_REFRESH", "30/minute"),
+        "invitation_redeem": os.environ.get("THROTTLE_INVITATION_REDEEM", "10/minute"),
+    },
 }
 
 # ---- SimpleJWT ----
@@ -124,7 +134,7 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=int(os.environ.get("JWT_ACCESS_MIN", 1440))),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=int(os.environ.get("JWT_REFRESH_DAYS", 7))),
     "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": False,
+    "BLACKLIST_AFTER_ROTATION": True,
     "AUTH_HEADER_TYPES": ("Bearer",),
     "USER_ID_FIELD": "id",
     "USER_ID_CLAIM": "user_id",
@@ -182,6 +192,7 @@ CACHES = {
 # ---- AI Engine integration (stub contract, see apps.checkins.ai_client) ----
 AI_ENGINE_URL = os.environ.get("AI_ENGINE_URL", "")
 AI_ENGINE_TIMEOUT_SECONDS = int(os.environ.get("AI_ENGINE_TIMEOUT_SECONDS", 8))
+AI_ENGINE_INTERNAL_KEY = os.environ.get("AI_ENGINE_INTERNAL_KEY", "")
 
 # ---- Business-rule defaults (see apps.alerts.rules) ----
 INVITATION_CODE_EXPIRY_MINUTES = int(os.environ.get("INVITATION_CODE_EXPIRY_MINUTES", 15))
